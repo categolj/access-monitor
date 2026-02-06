@@ -89,8 +89,12 @@ class AccessQueryControllerIntegrationTest {
 			.json("""
 					{
 					  "granularity": "1m",
-					  "timestamp": "2026-02-06T15:30:00Z",
-					  "hosts": ["ik.am"]
+					  "from": "2026-02-06T15:30:00Z",
+					  "to": "2026-02-06T15:30:00Z",
+					  "hosts": ["ik.am"],
+					  "paths": ["/entries/896"],
+					  "statuses": [200],
+					  "methods": ["GET"]
 					}
 					""");
 	}
@@ -106,11 +110,41 @@ class AccessQueryControllerIntegrationTest {
 			.json("""
 					{
 					  "granularity": "1m",
-					  "timestamp": "2026-02-06T15:30:00Z",
+					  "from": "2026-02-06T15:30:00Z",
+					  "to": "2026-02-06T15:30:00Z",
 					  "host": "ik.am",
+					  "hosts": ["ik.am"],
 					  "paths": ["/entries/896"],
 					  "statuses": [200],
 					  "methods": ["GET"]
+					}
+					""");
+	}
+
+	@Test
+	void queryDimensionsWithRange() {
+		// Add data for a second timestamp
+		this.redisTemplate.opsForValue().set("access:cnt:1m:202602061531:other.com:/api/health:200:POST", "5");
+		this.redisTemplate.opsForSet().add("access:idx:1m:202602061531:hosts", "other.com");
+		this.redisTemplate.opsForSet().add("access:idx:1m:202602061531:other.com:paths", "/api/health");
+		this.redisTemplate.opsForSet().add("access:idx:1m:202602061531:other.com:statuses", "200");
+		this.redisTemplate.opsForSet().add("access:idx:1m:202602061531:other.com:methods", "POST");
+
+		this.client.get()
+			.uri("/api/query/dimensions?granularity=1m&from=2026-02-06T15:30:00Z&to=2026-02-06T15:31:00Z")
+			.exchange()
+			.expectStatus()
+			.isOk()
+			.expectBody()
+			.json("""
+					{
+					  "granularity": "1m",
+					  "from": "2026-02-06T15:30:00Z",
+					  "to": "2026-02-06T15:31:00Z",
+					  "hosts": ["ik.am", "other.com"],
+					  "paths": ["/api/health", "/entries/896"],
+					  "statuses": [200],
+					  "methods": ["GET", "POST"]
 					}
 					""");
 	}

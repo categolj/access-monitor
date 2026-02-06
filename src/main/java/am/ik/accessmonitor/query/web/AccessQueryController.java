@@ -44,13 +44,35 @@ public class AccessQueryController {
 	}
 
 	/**
-	 * Queries available dimension values for a specific time slot.
+	 * Queries available dimension values for a time range or single time slot. Accepts
+	 * either {@code from}/{@code to} for range queries, or {@code timestamp} for
+	 * single-slot queries (backward compatibility).
 	 */
 	@GetMapping("/api/query/dimensions")
-	public DimensionResult queryDimensions(@RequestParam String granularity, @RequestParam Instant timestamp,
-			@RequestParam(required = false) String host) {
-		DimensionParams params = new DimensionParams(granularity, timestamp, host);
-		return this.queryService.queryDimensions(params);
+	public ResponseEntity<DimensionResult> queryDimensions(@RequestParam String granularity,
+			@RequestParam(required = false) Instant timestamp, @RequestParam(required = false) Instant from,
+			@RequestParam(required = false) Instant to, @RequestParam(required = false) String host) {
+		Instant effectiveFrom;
+		Instant effectiveTo;
+		if (from != null && to != null) {
+			effectiveFrom = from;
+			effectiveTo = to;
+		}
+		else if (timestamp != null) {
+			effectiveFrom = timestamp;
+			effectiveTo = timestamp;
+		}
+		else {
+			return ResponseEntity.badRequest().build();
+		}
+		try {
+			DimensionParams params = new DimensionParams(granularity, effectiveFrom, effectiveTo, host);
+			DimensionResult result = this.queryService.queryDimensions(params);
+			return ResponseEntity.ok(result);
+		}
+		catch (IllegalArgumentException ex) {
+			return ResponseEntity.badRequest().build();
+		}
 	}
 
 }

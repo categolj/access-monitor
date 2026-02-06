@@ -86,29 +86,65 @@ public class AccessQueryService {
 	}
 
 	/**
-	 * Queries available dimension values for a specific time slot.
+	 * Queries available dimension values across a time range. Uses SUNION to efficiently
+	 * merge dimension sets across all time slots.
+	 * @throws IllegalArgumentException if the number of time slots exceeds the configured
+	 * maximum
 	 */
 	public DimensionResult queryDimensions(DimensionParams params) {
 		Granularity granularity = Granularity.fromLabel(params.granularity());
-		String ts = granularity.format(params.timestamp());
+		List<Instant> slots = expandSlots(params.from(), params.to(), granularity);
 
-		if (params.host() == null) {
-			Set<String> hosts = this.redisTemplate.opsForSet().members(ValkeyKeyBuilder.hostsIndexKey(granularity, ts));
-			return new DimensionResult(params.granularity(), params.timestamp(), null,
-					hosts != null ? hosts.stream().sorted().toList() : List.of(), null, null, null);
+		if (slots.size() > this.maxSlots) {
+			throw new IllegalArgumentException(
+					"Too many time slots (%d). Maximum is %d. Use a larger granularity or a narrower time range."
+						.formatted(slots.size(), this.maxSlots));
 		}
 
-		Set<String> paths = this.redisTemplate.opsForSet()
-			.members(ValkeyKeyBuilder.pathsIndexKey(granularity, ts, params.host()));
-		Set<String> statuses = this.redisTemplate.opsForSet()
-			.members(ValkeyKeyBuilder.statusesIndexKey(granularity, ts, params.host()));
-		Set<String> methods = this.redisTemplate.opsForSet()
-			.members(ValkeyKeyBuilder.methodsIndexKey(granularity, ts, params.host()));
+		List<String> timestamps = slots.stream().map(granularity::format).distinct().toList();
 
-		return new DimensionResult(params.granularity(), params.timestamp(), params.host(), null,
-				paths != null ? paths.stream().sorted().toList() : List.of(),
-				statuses != null ? statuses.stream().sorted().map(Integer::parseInt).toList() : List.of(),
-				methods != null ? methods.stream().sorted().toList() : List.of());
+		// Get all hosts across all slots
+		List<String> hostsKeys = timestamps.stream()
+			.map(ts -> ValkeyKeyBuilder.hostsIndexKey(granularity, ts))
+			.toList();
+		Set<String> allHosts = unionSets(hostsKeys);
+
+		// Determine which hosts to scan for detail dimensions
+		List<String> hostsForDetail = params.host() != null ? List.of(params.host())
+				: allHosts.stream().sorted().toList();
+
+		// Build all keys for paths, methods, statuses
+		List<String> pathKeys = new ArrayList<>();
+		List<String> methodKeys = new ArrayList<>();
+		List<String> statusKeys = new ArrayList<>();
+
+		for (String ts : timestamps) {
+			for (String host : hostsForDetail) {
+				pathKeys.add(ValkeyKeyBuilder.pathsIndexKey(granularity, ts, host));
+				methodKeys.add(ValkeyKeyBuilder.methodsIndexKey(granularity, ts, host));
+				statusKeys.add(ValkeyKeyBuilder.statusesIndexKey(granularity, ts, host));
+			}
+		}
+
+		Set<String> allPaths = unionSets(pathKeys);
+		Set<String> allMethods = unionSets(methodKeys);
+		Set<String> allStatuses = unionSets(statusKeys);
+
+		return new DimensionResult(params.granularity(), params.from(), params.to(), params.host(),
+				allHosts.stream().sorted().toList(), allPaths.stream().sorted().toList(),
+				allStatuses.stream().sorted().map(Integer::parseInt).toList(), allMethods.stream().sorted().toList());
+	}
+
+	private Set<String> unionSets(List<String> keys) {
+		if (keys.isEmpty()) {
+			return Set.of();
+		}
+		if (keys.size() == 1) {
+			Set<String> result = this.redisTemplate.opsForSet().members(keys.getFirst());
+			return result != null ? result : Set.of();
+		}
+		Set<String> result = this.redisTemplate.opsForSet().union(keys.getFirst(), keys.subList(1, keys.size()));
+		return result != null ? result : Set.of();
 	}
 
 	private List<Instant> expandSlots(Instant from, Instant to, Granularity granularity) {
@@ -207,9 +243,9 @@ public class AccessQueryService {
 	}
 
 	/**
-	 * Parameters for dimension listing query.
+	 * Parameters for dimension listing query. Supports querying a time range.
 	 */
-	public record DimensionParams(String granularity, Instant timestamp, String host) {
+	public record DimensionParams(String granularity, Instant from, Instant to, String host) {
 	}
 
 	/**
@@ -234,7 +270,7 @@ public class AccessQueryService {
 	/**
 	 * Result of a dimension listing query.
 	 */
-	public record DimensionResult(String granularity, Instant timestamp, String host, List<String> hosts,
+	public record DimensionResult(String granularity, Instant from, Instant to, String host, List<String> hosts,
 			List<String> paths, List<Integer> statuses, List<String> methods) {
 	}
 

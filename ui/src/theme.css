@@ -1,0 +1,20 @@
+:root,
+[data-theme='light'] {
+  --color-bg: #ffffff;
+  --color-text: #0a0a0a;
+  --color-text-secondary: #6b7280;
+  --color-surface: #f8f8f8;
+  --color-border: #e5e5e5;
+  --color-input-bg: #ffffff;
+  --color-hover: #f0f0f0;
+}
+
+[data-theme='dark'] {
+  --color-bg: #0a0a0a;
+  --color-text: #fafafa;
+  --color-text-secondary: #9ca3af;
+  --color-surface: #141414;
+  --color-border: #262626;
+  --color-input-bg: #1a1a1a;
+  --color-hover: #1f1f1f;
+}
