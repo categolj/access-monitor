@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { RequestRateChart } from '../components/charts/RequestRateChart';
 import { StatusDistributionChart } from '../components/charts/StatusDistributionChart';
@@ -11,6 +11,35 @@ export function Dashboard() {
   const [hostInput, setHostInput] = useState('');
   const [pathInput, setPathInput] = useState('');
   const [methodInput, setMethodInput] = useState('');
+  const [hosts, setHosts] = useState<string[]>([]);
+  const [paths, setPaths] = useState<string[]>([]);
+
+  const loadDimensions = useCallback(async () => {
+    if (!credentials) return;
+    try {
+      const now = new Date();
+      const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const params = new URLSearchParams({
+        granularity: '1h',
+        from: from.toISOString(),
+        to: now.toISOString(),
+      });
+      const response = await fetch(`/api/query/dimensions?${params}`, {
+        headers: { Authorization: `Basic ${credentials}` },
+      });
+      if (response.ok) {
+        const result = await response.json();
+        setHosts(result.hosts ?? []);
+        setPaths(result.paths ?? []);
+      }
+    } catch {
+      // ignore
+    }
+  }, [credentials]);
+
+  useEffect(() => {
+    loadDimensions();
+  }, [loadDimensions]);
 
   const filter: StreamFilter = useMemo(
     () => ({ host: hostInput, path: pathInput, method: methodInput }),
@@ -37,21 +66,29 @@ export function Dashboard() {
           Host
           <input
             type="text"
+            list="host-options"
             placeholder="Filter by host..."
             value={hostInput}
             onChange={(e) => setHostInput(e.target.value)}
             data-testid="filter-host"
           />
+          <datalist id="host-options">
+            {hosts.map((h) => <option key={h} value={h} />)}
+          </datalist>
         </label>
         <label>
           Path
           <input
             type="text"
+            list="path-options"
             placeholder="Filter by path..."
             value={pathInput}
             onChange={(e) => setPathInput(e.target.value)}
             data-testid="filter-path"
           />
+          <datalist id="path-options">
+            {paths.map((p) => <option key={p} value={p} />)}
+          </datalist>
         </label>
         <label>
           Method
