@@ -2,7 +2,7 @@ package am.ik.accessmonitor.blacklist;
 
 import java.time.Instant;
 import java.time.InstantSource;
-import java.util.Set;
+import java.util.UUID;
 
 import am.ik.accessmonitor.AccessMonitorProperties;
 import am.ik.accessmonitor.aggregation.Granularity;
@@ -27,6 +27,8 @@ public class BlacklistEvaluator {
 
 	private static final Logger log = LoggerFactory.getLogger(BlacklistEvaluator.class);
 
+	private static final String LOCK_KEY = "access-monitor:lock:blacklist-evaluator";
+
 	private final StringRedisTemplate redisTemplate;
 
 	private final AccessMonitorProperties.BlacklistProperties blacklistProperties;
@@ -35,12 +37,15 @@ public class BlacklistEvaluator {
 
 	private final InstantSource instantSource;
 
+	private final String instanceId;
+
 	public BlacklistEvaluator(StringRedisTemplate redisTemplate, AccessMonitorProperties properties,
 			BlacklistCooldownManager cooldownManager, InstantSource instantSource) {
 		this.redisTemplate = redisTemplate;
 		this.blacklistProperties = properties.blacklist();
 		this.cooldownManager = cooldownManager;
 		this.instantSource = instantSource;
+		this.instanceId = UUID.randomUUID().toString();
 	}
 
 	/**
@@ -49,6 +54,11 @@ public class BlacklistEvaluator {
 	 */
 	@Scheduled(fixedDelayString = "${access-monitor.blacklist.evaluation-interval}")
 	public void evaluate() {
+		Boolean acquired = this.redisTemplate.opsForValue()
+			.setIfAbsent(LOCK_KEY, this.instanceId, this.blacklistProperties.evaluationInterval());
+		if (!Boolean.TRUE.equals(acquired)) {
+			return;
+		}
 		Granularity granularity = Granularity.fromWindow(this.blacklistProperties.window());
 		String ts = granularity.format(this.instantSource.instant());
 		String pattern = "access:disallowed-host:cnt:" + granularity.label() + ":" + ts + ":*";
