@@ -59,6 +59,9 @@ public class AccessLogController {
 		if (request.clientIp() != null) {
 			builder.addAttributes(stringKv("ClientHost", request.clientIp()));
 		}
+		if (request.traceId() != null) {
+			builder.addAttributes(stringKv("TraceId", request.traceId()));
+		}
 
 		return ExportLogsServiceRequest.newBuilder()
 			.addResourceLogs(
@@ -79,7 +82,7 @@ public class AccessLogController {
 	 * Simple JSON request format for access log ingestion.
 	 */
 	public record IngestRequest(Instant timestamp, String host, String path, String method, int statusCode,
-			long durationNs, String clientIp) {
+			long durationNs, String clientIp, String traceId) {
 	}
 
 }

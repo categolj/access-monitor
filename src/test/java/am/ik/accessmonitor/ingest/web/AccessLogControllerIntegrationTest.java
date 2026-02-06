@@ -64,7 +64,8 @@ class AccessLogControllerIntegrationTest {
 				  "method": "GET",
 				  "statusCode": 200,
 				  "durationNs": 50000000,
-				  "clientIp": "10.0.0.1"
+				  "clientIp": "10.0.0.1",
+				  "traceId": "abc123def456"
 				}
 				""").exchange().expectStatus().isAccepted();
 
@@ -80,6 +81,7 @@ class AccessLogControllerIntegrationTest {
 		assertThat(getIntAttribute(logRecord, "Duration")).isEqualTo(50000000L);
 		assertThat(getStringAttribute(logRecord, "ClientHost")).isEqualTo("10.0.0.1");
 		assertThat(getStringAttribute(logRecord, "StartUTC")).isEqualTo("2026-02-06T15:30:00Z");
+		assertThat(getStringAttribute(logRecord, "TraceId")).isEqualTo("abc123def456");
 	}
 
 	@Test
