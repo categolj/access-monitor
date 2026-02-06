@@ -4,6 +4,7 @@ import java.time.InstantSource;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.support.ContextPropagatingTaskDecorator;
 
 /**
  * General application configuration providing cross-cutting beans.
@@ -17,6 +18,11 @@ public class AppConfig {
 	@Bean
 	InstantSource instantSource() {
 		return InstantSource.system();
+	}
+
+	@Bean
+	ContextPropagatingTaskDecorator contextPropagatingTaskDecorator() {
+		return new ContextPropagatingTaskDecorator();
 	}
 
 }
