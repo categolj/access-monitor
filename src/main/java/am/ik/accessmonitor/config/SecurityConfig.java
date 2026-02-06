@@ -18,7 +18,7 @@ public class SecurityConfig {
 		return http
 			.authorizeHttpRequests(auth -> auth.requestMatchers("/actuator/**")
 				.permitAll()
-				.requestMatchers("/api/**")
+				.requestMatchers("/api/**", "/v1/logs")
 				.authenticated()
 				.anyRequest()
 				.permitAll())
