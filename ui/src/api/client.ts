@@ -30,7 +30,16 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error('Unauthorized');
   }
   if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
+    let message = `API error: ${response.status}`;
+    try {
+      const body = await response.json();
+      if (body && body.message) {
+        message = body.message;
+      }
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(message);
   }
   return response.json();
 }

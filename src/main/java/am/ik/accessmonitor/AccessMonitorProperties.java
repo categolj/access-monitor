@@ -73,6 +73,6 @@ public record AccessMonitorProperties(SseProperties sse, AggregationProperties a
 	/**
 	 * Query API configuration.
 	 */
-	public record QueryProperties(@DefaultValue("1440") int maxSlots) {
+	public record QueryProperties(@DefaultValue("2880") int maxSlots) {
 	}
 }

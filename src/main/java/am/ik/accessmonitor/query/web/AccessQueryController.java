@@ -1,6 +1,7 @@
 package am.ik.accessmonitor.query.web;
 
 import java.time.Instant;
+import java.util.Map;
 
 import am.ik.accessmonitor.query.AccessQueryService;
 import am.ik.accessmonitor.query.AccessQueryService.DimensionParams;
@@ -29,7 +30,7 @@ public class AccessQueryController {
 	 * Queries aggregated access metrics within a time range.
 	 */
 	@GetMapping("/api/query/access")
-	public ResponseEntity<QueryResult> queryAccess(@RequestParam String granularity, @RequestParam Instant from,
+	public ResponseEntity<?> queryAccess(@RequestParam String granularity, @RequestParam Instant from,
 			@RequestParam Instant to, @RequestParam(required = false) String host,
 			@RequestParam(required = false) String path, @RequestParam(required = false) Integer status,
 			@RequestParam(required = false) String method, @RequestParam(required = false) String metric) {
@@ -39,7 +40,7 @@ public class AccessQueryController {
 			return ResponseEntity.ok(result);
 		}
 		catch (IllegalArgumentException ex) {
-			return ResponseEntity.badRequest().build();
+			return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
 		}
 	}
 
@@ -49,7 +50,7 @@ public class AccessQueryController {
 	 * single-slot queries (backward compatibility).
 	 */
 	@GetMapping("/api/query/dimensions")
-	public ResponseEntity<DimensionResult> queryDimensions(@RequestParam String granularity,
+	public ResponseEntity<?> queryDimensions(@RequestParam String granularity,
 			@RequestParam(required = false) Instant timestamp, @RequestParam(required = false) Instant from,
 			@RequestParam(required = false) Instant to, @RequestParam(required = false) String host) {
 		Instant effectiveFrom;
@@ -63,7 +64,8 @@ public class AccessQueryController {
 			effectiveTo = timestamp;
 		}
 		else {
-			return ResponseEntity.badRequest().build();
+			return ResponseEntity.badRequest()
+				.body(Map.of("message", "Either 'from'/'to' or 'timestamp' parameter is required"));
 		}
 		try {
 			DimensionParams params = new DimensionParams(granularity, effectiveFrom, effectiveTo, host);
@@ -71,7 +73,7 @@ public class AccessQueryController {
 			return ResponseEntity.ok(result);
 		}
 		catch (IllegalArgumentException ex) {
-			return ResponseEntity.badRequest().build();
+			return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
 		}
 	}
 
