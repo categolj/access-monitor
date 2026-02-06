@@ -8,6 +8,7 @@ import am.ik.accessmonitor.AccessMonitorProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -17,7 +18,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * via their individual queues.
  */
 @Component
-public class SseSessionManager {
+public class SseSessionManager implements DisposableBean {
 
 	private static final Logger log = LoggerFactory.getLogger(SseSessionManager.class);
 
@@ -80,6 +81,16 @@ public class SseSessionManager {
 			Thread.currentThread().interrupt();
 			removeSession(session);
 		}
+	}
+
+	@Override
+	public void destroy() {
+		log.info("Shutting down SseSessionManager, completing {} sessions", this.sessions.size());
+		for (SseSession session : this.sessions) {
+			session.emitter().complete();
+			session.queue().offer(""); // unblock drainQueue thread
+		}
+		this.sessions.clear();
 	}
 
 	private void removeSession(SseSession session) {
