@@ -1,6 +1,7 @@
 package am.ik.accessmonitor.blacklist;
 
 import java.time.Instant;
+import java.time.InstantSource;
 import java.util.Set;
 
 import am.ik.accessmonitor.AccessMonitorProperties;
@@ -32,11 +33,14 @@ public class BlacklistEvaluator {
 
 	private final BlacklistCooldownManager cooldownManager;
 
+	private final InstantSource instantSource;
+
 	public BlacklistEvaluator(StringRedisTemplate redisTemplate, AccessMonitorProperties properties,
-			BlacklistCooldownManager cooldownManager) {
+			BlacklistCooldownManager cooldownManager, InstantSource instantSource) {
 		this.redisTemplate = redisTemplate;
 		this.blacklistProperties = properties.blacklist();
 		this.cooldownManager = cooldownManager;
+		this.instantSource = instantSource;
 	}
 
 	/**
@@ -46,7 +50,7 @@ public class BlacklistEvaluator {
 	@Scheduled(fixedDelayString = "${access-monitor.blacklist.evaluation-interval}")
 	public void evaluate() {
 		Granularity granularity = Granularity.fromWindow(this.blacklistProperties.window());
-		String ts = granularity.format(Instant.now());
+		String ts = granularity.format(this.instantSource.instant());
 		String pattern = "access:disallowed-host:cnt:" + granularity.label() + ":" + ts + ":*";
 
 		ScanOptions scanOptions = ScanOptions.scanOptions().match(pattern).count(100).build();

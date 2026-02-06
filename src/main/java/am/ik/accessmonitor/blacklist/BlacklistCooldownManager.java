@@ -1,5 +1,7 @@
 package am.ik.accessmonitor.blacklist;
 
+import java.time.InstantSource;
+
 import am.ik.accessmonitor.alert.CooldownManager;
 
 import org.springframework.stereotype.Component;
@@ -11,5 +13,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class BlacklistCooldownManager extends CooldownManager {
+
+	public BlacklistCooldownManager(InstantSource instantSource) {
+		super(instantSource);
+	}
 
 }

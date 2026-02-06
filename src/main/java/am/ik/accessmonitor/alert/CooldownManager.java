@@ -2,6 +2,7 @@ package am.ik.accessmonitor.alert;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.InstantSource;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -11,6 +12,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class CooldownManager {
 
 	private final ConcurrentHashMap<String, Instant> lastFiredAt = new ConcurrentHashMap<>();
+
+	private final InstantSource instantSource;
+
+	public CooldownManager(InstantSource instantSource) {
+		this.instantSource = instantSource;
+	}
 
 	/**
 	 * Checks whether the alert with the given key can fire based on its cooldown
@@ -25,7 +32,7 @@ public class CooldownManager {
 		if (lastFired == null) {
 			return true;
 		}
-		return Instant.now().isAfter(lastFired.plus(cooldown));
+		return this.instantSource.instant().isAfter(lastFired.plus(cooldown));
 	}
 
 	/**
@@ -33,7 +40,7 @@ public class CooldownManager {
 	 * @param alertKey unique key identifying the alert
 	 */
 	public void recordFiring(String alertKey) {
-		this.lastFiredAt.put(alertKey, Instant.now());
+		this.lastFiredAt.put(alertKey, this.instantSource.instant());
 	}
 
 }

@@ -1,6 +1,7 @@
 package am.ik.accessmonitor.event;
 
 import java.time.Instant;
+import java.time.InstantSource;
 import java.util.List;
 
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
@@ -15,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class OtlpLogConverterTest {
 
-	private final OtlpLogConverter converter = new OtlpLogConverter();
+	private final OtlpLogConverter converter = new OtlpLogConverter(InstantSource.system());
 
 	@Test
 	void convertSingleLogRecord() {

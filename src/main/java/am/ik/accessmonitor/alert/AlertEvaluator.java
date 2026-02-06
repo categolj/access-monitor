@@ -1,6 +1,7 @@
 package am.ik.accessmonitor.alert;
 
 import java.time.Instant;
+import java.time.InstantSource;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -36,12 +37,15 @@ public class AlertEvaluator {
 
 	private final CooldownManager cooldownManager;
 
+	private final InstantSource instantSource;
+
 	public AlertEvaluator(StringRedisTemplate redisTemplate, AccessMonitorProperties properties,
-			AlertManagerClient alertManagerClient) {
+			AlertManagerClient alertManagerClient, InstantSource instantSource) {
 		this.redisTemplate = redisTemplate;
 		this.properties = properties;
 		this.alertManagerClient = alertManagerClient;
-		this.cooldownManager = new CooldownManager();
+		this.instantSource = instantSource;
+		this.cooldownManager = new CooldownManager(instantSource);
 	}
 
 	/**
@@ -70,7 +74,7 @@ public class AlertEvaluator {
 
 	private void evaluatePerHost(AlertRuleProperties rule) {
 		Granularity granularity = Granularity.fromWindow(rule.window());
-		String ts = granularity.format(Instant.now());
+		String ts = granularity.format(this.instantSource.instant());
 		String hostsKey = ValkeyKeyBuilder.hostsIndexKey(granularity, ts);
 		Set<String> hosts = this.redisTemplate.opsForSet().members(hostsKey);
 		if (hosts == null || hosts.isEmpty()) {
@@ -83,7 +87,7 @@ public class AlertEvaluator {
 
 	private void evaluateGlobal(AlertRuleProperties rule) {
 		Granularity granularity = Granularity.fromWindow(rule.window());
-		String ts = granularity.format(Instant.now());
+		String ts = granularity.format(this.instantSource.instant());
 		evaluateCondition(rule, granularity, ts, null);
 	}
 
@@ -125,7 +129,7 @@ public class AlertEvaluator {
 
 		// Calculate baseline from 1h granularity average
 		Granularity baselineGranularity = Granularity.fromWindow(rule.baselineWindow());
-		String baselineTs = baselineGranularity.format(Instant.now());
+		String baselineTs = baselineGranularity.format(this.instantSource.instant());
 		long baselineCount = sumCountsByStatusPrefix(baselineGranularity, baselineTs, host);
 
 		// Normalize baseline to per-minute rate
@@ -300,8 +304,8 @@ public class AlertEvaluator {
 	}
 
 	private void fireAlert(String alertKey, Map<String, String> labels, Map<String, String> annotations) {
-		this.alertManagerClient.postAlert(new AlertManagerClient.AlertPayload(labels, annotations, Instant.now(),
-				"http://access-monitor:8080/alerts"));
+		this.alertManagerClient.postAlert(new AlertManagerClient.AlertPayload(labels, annotations,
+				this.instantSource.instant(), "http://access-monitor:8080/alerts"));
 		this.cooldownManager.recordFiring(alertKey);
 	}
 

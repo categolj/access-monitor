@@ -1,6 +1,7 @@
 package am.ik.accessmonitor.event;
 
 import java.time.Instant;
+import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,6 +26,12 @@ import org.springframework.stereotype.Component;
 public class OtlpLogConverter {
 
 	private static final Logger log = LoggerFactory.getLogger(OtlpLogConverter.class);
+
+	private final InstantSource instantSource;
+
+	public OtlpLogConverter(InstantSource instantSource) {
+		this.instantSource = instantSource;
+	}
 
 	/**
 	 * Converts raw OTLP protobuf bytes to a list of AccessEvent instances. A single
@@ -122,7 +129,7 @@ public class OtlpLogConverter {
 		if (timeUnixNano > 0) {
 			return Instant.ofEpochSecond(timeUnixNano / 1_000_000_000L, timeUnixNano % 1_000_000_000L);
 		}
-		return Instant.now();
+		return this.instantSource.instant();
 	}
 
 	private int extractInt(AnyValue value) {
