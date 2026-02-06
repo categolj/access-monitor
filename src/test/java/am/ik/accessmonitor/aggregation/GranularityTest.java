@@ -73,7 +73,7 @@ class GranularityTest {
 	@Test
 	void ttlSeconds() {
 		AccessMonitorProperties.ValkeyProperties.TtlProperties ttl = new AccessMonitorProperties.ValkeyProperties.TtlProperties(
-				86400, 604800, 2592000, 7776000);
+				Duration.ofDays(1), Duration.ofDays(7), Duration.ofDays(30), Duration.ofDays(90));
 
 		assertThat(Granularity.ONE_MINUTE.ttlSeconds(ttl)).isEqualTo(86400);
 		assertThat(Granularity.FIVE_MINUTES.ttlSeconds(ttl)).isEqualTo(604800);

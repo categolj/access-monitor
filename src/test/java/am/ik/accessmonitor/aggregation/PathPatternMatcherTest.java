@@ -63,7 +63,8 @@ class PathPatternMatcherTest {
 	private PathPatternMatcher createMatcher(List<PathPatternProperties> patterns) {
 		AccessMonitorProperties properties = new AccessMonitorProperties(new SseProperties(1000, 10),
 				new AggregationProperties(200, patterns),
-				new ValkeyProperties(new TtlProperties(86400, 604800, 2592000, 7776000)),
+				new ValkeyProperties(new TtlProperties(Duration.ofDays(1), Duration.ofDays(7), Duration.ofDays(30),
+						Duration.ofDays(90))),
 				new AlertsProperties(true, null, Duration.ofSeconds(15), List.of()), new BlacklistProperties(true,
 						Duration.ofSeconds(15), List.of(), 100, Duration.ofMinutes(1), Duration.ofMinutes(10)),
 				new QueryProperties(1440));

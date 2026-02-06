@@ -38,10 +38,10 @@ public record AccessMonitorProperties(SseProperties sse, AggregationProperties a
 	public record ValkeyProperties(TtlProperties ttl) {
 
 		/**
-		 * TTL values in seconds for each granularity.
+		 * TTL values for each granularity.
 		 */
-		public record TtlProperties(@DefaultValue("86400") long oneMinute, @DefaultValue("604800") long fiveMinutes,
-				@DefaultValue("2592000") long oneHour, @DefaultValue("7776000") long oneDay) {
+		public record TtlProperties(@DefaultValue("1d") Duration oneMinute, @DefaultValue("7d") Duration fiveMinutes,
+				@DefaultValue("30d") Duration oneHour, @DefaultValue("90d") Duration oneDay) {
 		}
 	}
 

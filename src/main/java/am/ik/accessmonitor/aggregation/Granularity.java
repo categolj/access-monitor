@@ -80,10 +80,10 @@ public enum Granularity {
 	 */
 	public long ttlSeconds(AccessMonitorProperties.ValkeyProperties.TtlProperties ttl) {
 		return switch (this) {
-			case ONE_MINUTE -> ttl.oneMinute();
-			case FIVE_MINUTES -> ttl.fiveMinutes();
-			case ONE_HOUR -> ttl.oneHour();
-			case ONE_DAY -> ttl.oneDay();
+			case ONE_MINUTE -> ttl.oneMinute().toSeconds();
+			case FIVE_MINUTES -> ttl.fiveMinutes().toSeconds();
+			case ONE_HOUR -> ttl.oneHour().toSeconds();
+			case ONE_DAY -> ttl.oneDay().toSeconds();
 		};
 	}
 
