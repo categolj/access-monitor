@@ -90,11 +90,7 @@ class AccessQueryControllerIntegrationTest {
 					{
 					  "granularity": "1m",
 					  "timestamp": "2026-02-06T15:30:00Z",
-					  "host": null,
-					  "hosts": ["ik.am"],
-					  "paths": null,
-					  "statuses": null,
-					  "methods": null
+					  "hosts": ["ik.am"]
 					}
 					""");
 	}
@@ -112,7 +108,6 @@ class AccessQueryControllerIntegrationTest {
 					  "granularity": "1m",
 					  "timestamp": "2026-02-06T15:30:00Z",
 					  "host": "ik.am",
-					  "hosts": null,
 					  "paths": ["/entries/896"],
 					  "statuses": [200],
 					  "methods": ["GET"]
