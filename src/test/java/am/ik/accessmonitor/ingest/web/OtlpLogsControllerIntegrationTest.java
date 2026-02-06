@@ -59,7 +59,7 @@ class OtlpLogsControllerIntegrationTest {
 
 		this.client.post()
 			.uri("/v1/logs")
-			.contentType(MediaType.parseMediaType("application/x-protobuf"))
+			.contentType(MediaType.APPLICATION_PROTOBUF)
 			.body(message)
 			.exchange()
 			.expectStatus()
@@ -81,7 +81,7 @@ class OtlpLogsControllerIntegrationTest {
 
 		this.client.post()
 			.uri("/v1/logs")
-			.contentType(MediaType.parseMediaType("application/x-protobuf"))
+			.contentType(MediaType.APPLICATION_PROTOBUF)
 			.body(message)
 			.exchange()
 			.expectStatus()
