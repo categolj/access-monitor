@@ -3,12 +3,14 @@ package am.ik.accessmonitor.streaming;
 import java.io.IOException;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
 
 import am.ik.accessmonitor.AccessMonitorProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -26,8 +28,12 @@ public class SseSessionManager implements DisposableBean {
 
 	private final int bufferSize;
 
-	public SseSessionManager(AccessMonitorProperties properties) {
+	private final Executor executor;
+
+	public SseSessionManager(AccessMonitorProperties properties,
+			@Qualifier("applicationTaskExecutor") Executor executor) {
 		this.bufferSize = properties.sse().bufferSize();
+		this.executor = executor;
 	}
 
 	/**
@@ -43,7 +49,7 @@ public class SseSessionManager implements DisposableBean {
 		emitter.onTimeout(() -> removeSession(session));
 		emitter.onError(ex -> removeSession(session));
 
-		Thread.startVirtualThread(() -> drainQueue(session));
+		this.executor.execute(() -> drainQueue(session));
 
 		log.info("SSE session registered, active sessions: {}", this.sessions.size());
 		return emitter;
