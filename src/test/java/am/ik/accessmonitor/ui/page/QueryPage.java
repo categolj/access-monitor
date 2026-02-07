@@ -58,10 +58,24 @@ public class QueryPage {
 	}
 
 	/**
+	 * Sets the path select filter value.
+	 */
+	public void setPath(String value) {
+		this.page.locator("[data-testid='path-select']").selectOption(value);
+	}
+
+	/**
 	 * Returns whether the result chart is visible.
 	 */
 	public boolean isResultChartVisible() {
 		return this.page.locator("[data-testid='query-chart']").isVisible();
+	}
+
+	/**
+	 * Returns the text content of all result rows as a single string.
+	 */
+	public String getResultsText() {
+		return this.page.locator("[data-testid='query-results-body']").textContent();
 	}
 
 }

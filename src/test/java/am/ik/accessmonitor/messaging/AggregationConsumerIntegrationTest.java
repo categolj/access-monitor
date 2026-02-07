@@ -63,9 +63,13 @@ class AggregationConsumerIntegrationTest {
 		// Verify dimension indexes
 		assertThat(this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:hosts")).contains("ik.am");
 		assertThat(this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:ik.am:paths"))
-			.contains("/entries/896");
+			.contains("/entries/896", "/entries/*");
 		assertThat(this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:ik.am:statuses")).contains("200");
 		assertThat(this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:ik.am:methods")).contains("GET");
+
+		// Verify path pattern aggregation
+		assertThat(this.redisTemplate.opsForValue().get("access:cnt:1m:202602061530:ik.am:/entries/*:200:GET"))
+			.isEqualTo("1");
 
 		// Verify other granularities
 		assertThat(this.redisTemplate.opsForValue().get("access:cnt:5m:202602061530:ik.am:/entries/896:200:GET"))
@@ -73,6 +77,13 @@ class AggregationConsumerIntegrationTest {
 		assertThat(this.redisTemplate.opsForValue().get("access:cnt:1h:2026020615:ik.am:/entries/896:200:GET"))
 			.isEqualTo("1");
 		assertThat(this.redisTemplate.opsForValue().get("access:cnt:1d:20260206:ik.am:/entries/896:200:GET"))
+			.isEqualTo("1");
+		// Verify path pattern aggregation across granularities
+		assertThat(this.redisTemplate.opsForValue().get("access:cnt:5m:202602061530:ik.am:/entries/*:200:GET"))
+			.isEqualTo("1");
+		assertThat(this.redisTemplate.opsForValue().get("access:cnt:1h:2026020615:ik.am:/entries/*:200:GET"))
+			.isEqualTo("1");
+		assertThat(this.redisTemplate.opsForValue().get("access:cnt:1d:20260206:ik.am:/entries/*:200:GET"))
 			.isEqualTo("1");
 	}
 

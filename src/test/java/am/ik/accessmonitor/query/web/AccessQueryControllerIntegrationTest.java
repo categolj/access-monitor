@@ -41,8 +41,13 @@ class AccessQueryControllerIntegrationTest {
 		this.redisTemplate.opsForHash()
 			.putAll("access:dur:1m:202602061530:ik.am:/entries/896:200:GET",
 					java.util.Map.of("sum", "1720800000", "count", "15"));
+		// Path pattern wildcard aggregation data
+		this.redisTemplate.opsForValue().set("access:cnt:1m:202602061530:ik.am:/entries/*:200:GET", "25");
+		this.redisTemplate.opsForHash()
+			.putAll("access:dur:1m:202602061530:ik.am:/entries/*:200:GET",
+					java.util.Map.of("sum", "2868000000", "count", "25"));
 		this.redisTemplate.opsForSet().add("access:idx:1m:202602061530:hosts", "ik.am");
-		this.redisTemplate.opsForSet().add("access:idx:1m:202602061530:ik.am:paths", "/entries/896");
+		this.redisTemplate.opsForSet().add("access:idx:1m:202602061530:ik.am:paths", "/entries/896", "/entries/*");
 		this.redisTemplate.opsForSet().add("access:idx:1m:202602061530:ik.am:statuses", "200");
 		this.redisTemplate.opsForSet().add("access:idx:1m:202602061530:ik.am:methods", "GET");
 	}
@@ -61,6 +66,18 @@ class AccessQueryControllerIntegrationTest {
 					  "from": "2026-02-06T15:30:00Z",
 					  "to": "2026-02-06T15:30:00Z",
 					  "series": [
+					    {
+					      "timestamp": "2026-02-06T15:30:00Z",
+					      "host": "ik.am",
+					      "path": "/entries/*",
+					      "method": "GET",
+					      "statuses": {
+					        "200": {
+					          "count": 25,
+					          "durationMsAvg": 114.72
+					        }
+					      }
+					    },
 					    {
 					      "timestamp": "2026-02-06T15:30:00Z",
 					      "host": "ik.am",
@@ -92,7 +109,7 @@ class AccessQueryControllerIntegrationTest {
 					  "from": "2026-02-06T15:30:00Z",
 					  "to": "2026-02-06T15:30:00Z",
 					  "hosts": ["ik.am"],
-					  "paths": ["/entries/896"],
+					  "paths": ["/entries/*", "/entries/896"],
 					  "statuses": [200],
 					  "methods": ["GET"]
 					}
@@ -114,7 +131,7 @@ class AccessQueryControllerIntegrationTest {
 					  "to": "2026-02-06T15:30:00Z",
 					  "host": "ik.am",
 					  "hosts": ["ik.am"],
-					  "paths": ["/entries/896"],
+					  "paths": ["/entries/*", "/entries/896"],
 					  "statuses": [200],
 					  "methods": ["GET"]
 					}
@@ -142,7 +159,7 @@ class AccessQueryControllerIntegrationTest {
 					  "from": "2026-02-06T15:30:00Z",
 					  "to": "2026-02-06T15:31:00Z",
 					  "hosts": ["ik.am", "other.com"],
-					  "paths": ["/api/health", "/entries/896"],
+					  "paths": ["/api/health", "/entries/*", "/entries/896"],
 					  "statuses": [200],
 					  "methods": ["GET", "POST"]
 					}

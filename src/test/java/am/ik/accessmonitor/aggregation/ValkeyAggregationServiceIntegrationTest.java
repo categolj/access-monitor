@@ -63,13 +63,22 @@ class ValkeyAggregationServiceIntegrationTest {
 		assertThat(hosts).contains("ik.am");
 
 		Set<String> paths = this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:ik.am:paths");
-		assertThat(paths).contains("/entries/896");
+		assertThat(paths).contains("/entries/896", "/entries/*");
 
 		Set<String> statuses = this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:ik.am:statuses");
 		assertThat(statuses).contains("200");
 
 		Set<String> methods = this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:ik.am:methods");
 		assertThat(methods).contains("GET");
+
+		// Verify path pattern aggregation keys
+		String patternCountKey = "access:cnt:1m:202602061530:ik.am:/entries/*:200:GET";
+		assertThat(this.redisTemplate.opsForValue().get(patternCountKey)).isEqualTo("1");
+
+		String patternDurKey = "access:dur:1m:202602061530:ik.am:/entries/*:200:GET";
+		Map<Object, Object> patternDurHash = this.redisTemplate.opsForHash().entries(patternDurKey);
+		assertThat(patternDurHash.get("sum")).isEqualTo("114720000");
+		assertThat(patternDurHash.get("count")).isEqualTo("1");
 	}
 
 	@Test
@@ -90,6 +99,15 @@ class ValkeyAggregationServiceIntegrationTest {
 		Map<Object, Object> durHash = this.redisTemplate.opsForHash().entries(durKey);
 		assertThat(durHash.get("sum")).isEqualTo("300000000");
 		assertThat(durHash.get("count")).isEqualTo("2");
+
+		// Verify path pattern aggregation is also incremented
+		String patternCountKey = "access:cnt:1m:202602061530:ik.am:/entries/*:200:GET";
+		assertThat(this.redisTemplate.opsForValue().get(patternCountKey)).isEqualTo("2");
+
+		String patternDurKey = "access:dur:1m:202602061530:ik.am:/entries/*:200:GET";
+		Map<Object, Object> patternDurHash = this.redisTemplate.opsForHash().entries(patternDurKey);
+		assertThat(patternDurHash.get("sum")).isEqualTo("300000000");
+		assertThat(patternDurHash.get("count")).isEqualTo("2");
 	}
 
 }

@@ -279,6 +279,85 @@ class UiEndToEndTest {
 	}
 
 	@Test
+	void queryPageShowsWildcardPathAggregation() {
+		// Ingest events with different /entries/{id} paths via the ingest API
+		RestClient restClient = RestClient.builder().baseUrl(this.baseUrl).build();
+		Instant now = Instant.now();
+		String host = "wildcard.example.com";
+		String[][] testData = {
+				// path, statusCode, durationNs
+				{ "/entries/1", "200", "100000000" }, { "/entries/2", "200", "150000000" },
+				{ "/entries/3", "200", "200000000" }, { "/entries/42", "500", "300000000" },
+				{ "/entries/99", "200", "120000000" }, };
+
+		for (int i = 0; i < testData.length; i++) {
+			String[] row = testData[i];
+			String timestamp = now.plusSeconds(i).toString();
+			String body = """
+					{
+					  "timestamp": "%s",
+					  "host": "%s",
+					  "path": "%s",
+					  "method": "GET",
+					  "statusCode": %s,
+					  "durationNs": %s,
+					  "clientIp": "10.0.0.%d",
+					  "traceId": "wc-trace-%d"
+					}
+					""".formatted(timestamp, host, row[0], row[1], row[2], i + 1, i + 1);
+			restClient.post()
+				.uri("/api/ingest")
+				.contentType(MediaType.APPLICATION_JSON)
+				.headers(headers -> headers.setBasicAuth("user", "password"))
+				.body(body)
+				.retrieve()
+				.toBodilessEntity();
+		}
+
+		// Wait for aggregation to complete - check that the wildcard pattern key exists
+		Granularity granularity = Granularity.ONE_MINUTE;
+		String ts = granularity.format(now);
+		String wildcardCountKey = ValkeyKeyBuilder.countKey(granularity, ts, host, "/entries/*", 200, "GET");
+		this.page.waitForCondition(() -> {
+			String value = this.redisTemplate.opsForValue().get(wildcardCountKey);
+			return value != null && Integer.parseInt(value) >= 4;
+		}, new Page.WaitForConditionOptions().setTimeout(15000));
+
+		// Navigate to Query page and search with /entries/* path filter
+		LoginPage loginPage = new LoginPage(this.page).navigate(this.baseUrl);
+		DashboardPage dashboard = loginPage.login("user", "password");
+		QueryPage queryPage = dashboard.navigateToQuery();
+
+		DateTimeFormatter localFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
+			.withZone(ZoneId.systemDefault());
+		String fromLocal = localFormatter.format(now.minusSeconds(120));
+		String toLocal = localFormatter.format(now.plusSeconds(120));
+
+		queryPage.setGranularity("1m");
+		queryPage.setFromTime(fromLocal);
+		queryPage.setToTime(toLocal);
+		queryPage.submitQuery();
+
+		// Wait for dimensions to load and select the wildcard path
+		this.page.waitForCondition(() -> {
+			int optionCount = this.page.locator("[data-testid='path-select'] option").count();
+			return optionCount > 1;
+		}, new Page.WaitForConditionOptions().setTimeout(10000));
+		queryPage.setPath("/entries/*");
+		queryPage.submitQuery();
+
+		// Verify the results contain the wildcard path with aggregated count (4x200 +
+		// 1x500
+		// = 5 total)
+		assertThat(queryPage.getResultRowCount()).isGreaterThan(0);
+		String resultsText = queryPage.getResultsText();
+		assertThat(resultsText).contains("/entries/*");
+		// The 200 count should be 4 (entries/1,2,3,99) and 500 count should be 1
+		// (entries/42)
+		assertThat(resultsText).contains("4");
+	}
+
+	@Test
 	void darkModeToggleWorks() {
 		LoginPage loginPage = new LoginPage(this.page).navigate(this.baseUrl);
 		DashboardPage dashboard = loginPage.login("user", "password");
