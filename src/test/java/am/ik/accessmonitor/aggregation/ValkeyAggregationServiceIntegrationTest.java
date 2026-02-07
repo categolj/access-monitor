@@ -82,6 +82,61 @@ class ValkeyAggregationServiceIntegrationTest {
 	}
 
 	@Test
+	void aggregateDropsOriginalPathKeysWhenDropOriginalPathIsTrue() {
+		Instant timestamp = Instant.parse("2026-02-06T15:30:00Z");
+		AccessEvent event = new AccessEvent(timestamp, "ik.am",
+				"/webapi/entry.cgi?api=SYNO.Foto.Download&method=download", "GET", 200, 50000000L, "47.128.110.92",
+				"https", "HTTP/2.0", "web-service", "web-router", 200, 40000000L, 10000000L, "abc123", "def456", 0);
+
+		this.aggregationService.aggregate(event);
+
+		// Verify original path count key does NOT exist
+		String originalCountKey = "access:cnt:1m:202602061530:ik.am:/webapi/entry.cgi?api=SYNO.Foto.Download&method=download:200:GET";
+		assertThat(this.redisTemplate.opsForValue().get(originalCountKey)).isNull();
+
+		// Verify original path duration key does NOT exist
+		String originalDurKey = "access:dur:1m:202602061530:ik.am:/webapi/entry.cgi?api=SYNO.Foto.Download&method=download:200:GET";
+		assertThat(this.redisTemplate.opsForHash().entries(originalDurKey)).isEmpty();
+
+		// Verify pattern label count key exists
+		String patternCountKey = "access:cnt:1m:202602061530:ik.am:/webapi/entry.cgi:200:GET";
+		assertThat(this.redisTemplate.opsForValue().get(patternCountKey)).isEqualTo("1");
+
+		// Verify pattern label duration key exists
+		String patternDurKey = "access:dur:1m:202602061530:ik.am:/webapi/entry.cgi:200:GET";
+		Map<Object, Object> patternDurHash = this.redisTemplate.opsForHash().entries(patternDurKey);
+		assertThat(patternDurHash.get("sum")).isEqualTo("50000000");
+		assertThat(patternDurHash.get("count")).isEqualTo("1");
+
+		// Verify paths index contains pattern label but NOT original path
+		Set<String> paths = this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:ik.am:paths");
+		assertThat(paths).contains("/webapi/entry.cgi");
+		assertThat(paths).doesNotContain("/webapi/entry.cgi?api=SYNO.Foto.Download&method=download");
+	}
+
+	@Test
+	void aggregateWritesPatternKeyForEntriesWithQueryParams() {
+		Instant timestamp = Instant.parse("2026-02-06T15:30:00Z");
+		AccessEvent event = new AccessEvent(timestamp, "ik.am", "/entries?query=java", "GET", 200, 60000000L,
+				"47.128.110.92", "https", "HTTP/2.0", "web-service", "web-router", 200, 50000000L, 10000000L, "abc123",
+				"def456", 0);
+
+		this.aggregationService.aggregate(event);
+
+		// Verify original path count key exists (dropOriginalPath is false)
+		String originalCountKey = "access:cnt:1m:202602061530:ik.am:/entries?query=java:200:GET";
+		assertThat(this.redisTemplate.opsForValue().get(originalCountKey)).isEqualTo("1");
+
+		// Verify pattern label /entries count key exists
+		String patternCountKey = "access:cnt:1m:202602061530:ik.am:/entries:200:GET";
+		assertThat(this.redisTemplate.opsForValue().get(patternCountKey)).isEqualTo("1");
+
+		// Verify paths index contains both original path and pattern label
+		Set<String> paths = this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:ik.am:paths");
+		assertThat(paths).contains("/entries?query=java", "/entries");
+	}
+
+	@Test
 	void aggregateIncrementsOnMultipleCalls() {
 		Instant timestamp = Instant.parse("2026-02-06T15:30:00Z");
 		AccessEvent event1 = new AccessEvent(timestamp, "ik.am", "/entries/1", "GET", 200, 100000000L, "47.128.110.92",

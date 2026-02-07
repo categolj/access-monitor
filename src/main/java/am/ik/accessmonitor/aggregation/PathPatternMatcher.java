@@ -1,5 +1,6 @@
 package am.ik.accessmonitor.aggregation;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -10,7 +11,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Matches request paths against configured path patterns and returns the corresponding
- * labels. Used by the aggregation service to write pattern-based aggregation keys.
+ * labels along with aggregation options. Used by the aggregation service to write
+ * pattern-based aggregation keys.
  */
 @Component
 public class PathPatternMatcher {
@@ -21,23 +23,42 @@ public class PathPatternMatcher {
 		this.compiledPatterns = properties.aggregation()
 			.pathPatterns()
 			.stream()
-			.map(pp -> new CompiledPattern(pp.label(), Pattern.compile(pp.regex())))
+			.map(pp -> new CompiledPattern(pp.label(), Pattern.compile(pp.regex()), pp.dropOriginalPath()))
 			.toList();
 	}
 
 	/**
-	 * Returns the labels of all path patterns that match the given path.
+	 * Matches the given path against all configured patterns and returns a
+	 * {@link MatchResult} containing matching labels and whether the original path should
+	 * be dropped from aggregation.
 	 * @param path the request path to match
-	 * @return list of matching pattern labels (empty if no patterns match)
+	 * @return match result with labels and dropOriginalPath flag
 	 */
-	public List<String> matchingLabels(String path) {
-		return this.compiledPatterns.stream()
-			.filter(cp -> cp.pattern().matcher(path).matches())
-			.map(CompiledPattern::label)
-			.toList();
+	public MatchResult match(String path) {
+		List<String> labels = new ArrayList<>();
+		boolean drop = false;
+		for (CompiledPattern cp : this.compiledPatterns) {
+			if (cp.pattern().matcher(path).matches()) {
+				labels.add(cp.label());
+				if (cp.dropOriginalPath()) {
+					drop = true;
+				}
+			}
+		}
+		return new MatchResult(List.copyOf(labels), drop);
 	}
 
-	private record CompiledPattern(String label, Pattern pattern) {
+	/**
+	 * Result of matching a path against configured patterns.
+	 *
+	 * @param labels the labels of all matching patterns
+	 * @param dropOriginalPath true if the original path should be excluded from
+	 * aggregation keys
+	 */
+	public record MatchResult(List<String> labels, boolean dropOriginalPath) {
+	}
+
+	private record CompiledPattern(String label, Pattern pattern, boolean dropOriginalPath) {
 	}
 
 }

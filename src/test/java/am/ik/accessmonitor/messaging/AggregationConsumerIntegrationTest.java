@@ -88,6 +88,45 @@ class AggregationConsumerIntegrationTest {
 	}
 
 	@Test
+	void dropOriginalPathExcludesOriginalPathKeysFromValkey() {
+		byte[] message = buildOtlpMessage("ik.am", "/webapi/entry.cgi?api=SYNO.Foto.Download&method=download", "GET",
+				200, 50000000L, "2026-02-06T15:30:00.123Z", "47.128.110.92");
+
+		this.rabbitTemplate.convertAndSend("access_exchange", "access_logs", message);
+
+		// Wait for pattern label count key to appear
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+			String patternCountValue = this.redisTemplate.opsForValue()
+				.get("access:cnt:1m:202602061530:ik.am:/webapi/entry.cgi:200:GET");
+			assertThat(patternCountValue).isEqualTo("1");
+		});
+
+		// Verify original path count key does NOT exist
+		assertThat(this.redisTemplate.opsForValue()
+			.get("access:cnt:1m:202602061530:ik.am:/webapi/entry.cgi?api=SYNO.Foto.Download&method=download:200:GET"))
+			.isNull();
+
+		// Verify original path duration key does NOT exist
+		assertThat(this.redisTemplate.opsForHash()
+			.entries(
+					"access:dur:1m:202602061530:ik.am:/webapi/entry.cgi?api=SYNO.Foto.Download&method=download:200:GET"))
+			.isEmpty();
+
+		// Verify paths index contains pattern label but NOT original path
+		Set<String> paths = this.redisTemplate.opsForSet().members("access:idx:1m:202602061530:ik.am:paths");
+		assertThat(paths).contains("/webapi/entry.cgi");
+		assertThat(paths).doesNotContain("/webapi/entry.cgi?api=SYNO.Foto.Download&method=download");
+
+		// Verify other granularities for pattern label
+		assertThat(this.redisTemplate.opsForValue().get("access:cnt:5m:202602061530:ik.am:/webapi/entry.cgi:200:GET"))
+			.isEqualTo("1");
+		assertThat(this.redisTemplate.opsForValue().get("access:cnt:1h:2026020615:ik.am:/webapi/entry.cgi:200:GET"))
+			.isEqualTo("1");
+		assertThat(this.redisTemplate.opsForValue().get("access:cnt:1d:20260206:ik.am:/webapi/entry.cgi:200:GET"))
+			.isEqualTo("1");
+	}
+
+	@Test
 	void multipleMessagesAreAggregated() {
 		byte[] message1 = buildOtlpMessage("ik.am", "/entries/1", "GET", 200, 100000000L, "2026-02-06T15:30:10Z",
 				"10.0.0.1");

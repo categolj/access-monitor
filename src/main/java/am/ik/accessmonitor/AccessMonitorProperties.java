@@ -28,7 +28,8 @@ public record AccessMonitorProperties(SseProperties sse, AggregationProperties a
 		/**
 		 * Path pattern definition for aggregation grouping.
 		 */
-		public record PathPatternProperties(String label, String regex) {
+		public record PathPatternProperties(String label, String regex,
+				@DefaultValue("false") boolean dropOriginalPath) {
 		}
 	}
 

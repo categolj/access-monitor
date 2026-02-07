@@ -12,6 +12,7 @@ import am.ik.accessmonitor.AccessMonitorProperties.QueryProperties;
 import am.ik.accessmonitor.AccessMonitorProperties.SseProperties;
 import am.ik.accessmonitor.AccessMonitorProperties.ValkeyProperties;
 import am.ik.accessmonitor.AccessMonitorProperties.ValkeyProperties.TtlProperties;
+import am.ik.accessmonitor.aggregation.PathPatternMatcher.MatchResult;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,43 +22,80 @@ class PathPatternMatcherTest {
 	@Test
 	void matchSinglePattern() {
 		PathPatternMatcher matcher = createMatcher(
-				List.of(new PathPatternProperties("/entries/*", "^/entries/[^/]+$")));
+				List.of(new PathPatternProperties("/entries/*", "^/entries/[^/]+$", false)));
 
-		List<String> labels = matcher.matchingLabels("/entries/896");
-		assertThat(labels).containsExactly("/entries/*");
+		MatchResult result = matcher.match("/entries/896");
+		assertThat(result.labels()).containsExactly("/entries/*");
+		assertThat(result.dropOriginalPath()).isFalse();
 	}
 
 	@Test
 	void matchMultiplePatterns() {
-		PathPatternMatcher matcher = createMatcher(List.of(new PathPatternProperties("/entries/*", "^/entries/[^/]+$"),
-				new PathPatternProperties("/tags/*/entries", "^/tags/[^/]+/entries$")));
+		PathPatternMatcher matcher = createMatcher(
+				List.of(new PathPatternProperties("/entries/*", "^/entries/[^/]+$", false),
+						new PathPatternProperties("/tags/*/entries", "^/tags/[^/]+/entries$", false)));
 
-		assertThat(matcher.matchingLabels("/entries/896")).containsExactly("/entries/*");
-		assertThat(matcher.matchingLabels("/tags/java/entries")).containsExactly("/tags/*/entries");
+		assertThat(matcher.match("/entries/896").labels()).containsExactly("/entries/*");
+		assertThat(matcher.match("/tags/java/entries").labels()).containsExactly("/tags/*/entries");
 	}
 
 	@Test
 	void noMatch() {
 		PathPatternMatcher matcher = createMatcher(
-				List.of(new PathPatternProperties("/entries/*", "^/entries/[^/]+$")));
+				List.of(new PathPatternProperties("/entries/*", "^/entries/[^/]+$", false)));
 
-		assertThat(matcher.matchingLabels("/about")).isEmpty();
+		MatchResult result = matcher.match("/about");
+		assertThat(result.labels()).isEmpty();
+		assertThat(result.dropOriginalPath()).isFalse();
 	}
 
 	@Test
 	void emptyPatterns() {
 		PathPatternMatcher matcher = createMatcher(List.of());
 
-		assertThat(matcher.matchingLabels("/entries/896")).isEmpty();
+		MatchResult result = matcher.match("/entries/896");
+		assertThat(result.labels()).isEmpty();
+		assertThat(result.dropOriginalPath()).isFalse();
 	}
 
 	@Test
 	void pathMatchesMultiplePatterns() {
-		PathPatternMatcher matcher = createMatcher(List.of(new PathPatternProperties("/all/*", "^/.+$"),
-				new PathPatternProperties("/entries/*", "^/entries/[^/]+$")));
+		PathPatternMatcher matcher = createMatcher(List.of(new PathPatternProperties("/all/*", "^/.+$", false),
+				new PathPatternProperties("/entries/*", "^/entries/[^/]+$", false)));
 
-		List<String> labels = matcher.matchingLabels("/entries/896");
-		assertThat(labels).containsExactly("/all/*", "/entries/*");
+		MatchResult result = matcher.match("/entries/896");
+		assertThat(result.labels()).containsExactly("/all/*", "/entries/*");
+		assertThat(result.dropOriginalPath()).isFalse();
+	}
+
+	@Test
+	void dropOriginalPathWhenPatternFlagIsTrue() {
+		PathPatternMatcher matcher = createMatcher(
+				List.of(new PathPatternProperties("/webapi/entry.cgi", "^/webapi/entry\\.cgi(\\?.*)?$", true)));
+
+		MatchResult result = matcher.match("/webapi/entry.cgi?api=SYNO.Foto.Download&method=download");
+		assertThat(result.labels()).containsExactly("/webapi/entry.cgi");
+		assertThat(result.dropOriginalPath()).isTrue();
+	}
+
+	@Test
+	void dropOriginalPathIsTrueWhenAnyMatchingPatternHasFlag() {
+		PathPatternMatcher matcher = createMatcher(List.of(new PathPatternProperties("/all/*", "^/.+$", false),
+				new PathPatternProperties("/webapi/entry.cgi", "^/webapi/entry\\.cgi(\\?.*)?$", true)));
+
+		MatchResult result = matcher.match("/webapi/entry.cgi?api=SYNO.Foto");
+		assertThat(result.labels()).containsExactly("/all/*", "/webapi/entry.cgi");
+		assertThat(result.dropOriginalPath()).isTrue();
+	}
+
+	@Test
+	void matchWithQueryParameters() {
+		PathPatternMatcher matcher = createMatcher(
+				List.of(new PathPatternProperties("/entries/*", "^/entries/[^/]+(\\?.*)?$", false)));
+
+		MatchResult result = matcher.match("/entries/896?format=json");
+		assertThat(result.labels()).containsExactly("/entries/*");
+		assertThat(result.dropOriginalPath()).isFalse();
 	}
 
 	private PathPatternMatcher createMatcher(List<PathPatternProperties> patterns) {

@@ -2,9 +2,9 @@ package am.ik.accessmonitor.aggregation;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import am.ik.accessmonitor.AccessMonitorProperties;
+import am.ik.accessmonitor.aggregation.PathPatternMatcher.MatchResult;
 import am.ik.accessmonitor.event.AccessEvent;
 
 import org.springframework.data.redis.core.RedisCallback;
@@ -42,23 +42,27 @@ public class ValkeyAggregationService {
 		int status = event.statusCode();
 		String method = event.method();
 		long durationNs = event.durationNs();
-		List<String> matchingLabels = this.pathPatternMatcher.matchingLabels(path);
+		MatchResult matchResult = this.pathPatternMatcher.match(path);
+		List<String> matchingLabels = matchResult.labels();
+		boolean dropOriginalPath = matchResult.dropOriginalPath();
 
 		this.redisTemplate.executePipelined((RedisCallback<Object>) (connection) -> {
 			for (Granularity granularity : Granularity.values()) {
 				String ts = granularity.format(timestamp);
 				long ttl = granularity.ttlSeconds(this.ttlProperties);
 
-				// Count key for individual path
-				String countKey = ValkeyKeyBuilder.countKey(granularity, ts, host, path, status, method);
-				connection.stringCommands().incr(countKey.getBytes());
-				connection.keyCommands().expire(countKey.getBytes(), ttl);
+				if (!dropOriginalPath) {
+					// Count key for individual path
+					String countKey = ValkeyKeyBuilder.countKey(granularity, ts, host, path, status, method);
+					connection.stringCommands().incr(countKey.getBytes());
+					connection.keyCommands().expire(countKey.getBytes(), ttl);
 
-				// Duration hash key for individual path
-				String durKey = ValkeyKeyBuilder.durationKey(granularity, ts, host, path, status, method);
-				connection.hashCommands().hIncrBy(durKey.getBytes(), "sum".getBytes(), durationNs);
-				connection.hashCommands().hIncrBy(durKey.getBytes(), "count".getBytes(), 1);
-				connection.keyCommands().expire(durKey.getBytes(), ttl);
+					// Duration hash key for individual path
+					String durKey = ValkeyKeyBuilder.durationKey(granularity, ts, host, path, status, method);
+					connection.hashCommands().hIncrBy(durKey.getBytes(), "sum".getBytes(), durationNs);
+					connection.hashCommands().hIncrBy(durKey.getBytes(), "count".getBytes(), 1);
+					connection.keyCommands().expire(durKey.getBytes(), ttl);
+				}
 
 				// Path pattern aggregation
 				for (String patternLabel : matchingLabels) {
@@ -80,7 +84,9 @@ public class ValkeyAggregationService {
 				connection.keyCommands().expire(hostsKey.getBytes(), ttl);
 
 				String pathsKey = ValkeyKeyBuilder.pathsIndexKey(granularity, ts, host);
-				connection.setCommands().sAdd(pathsKey.getBytes(), path.getBytes());
+				if (!dropOriginalPath) {
+					connection.setCommands().sAdd(pathsKey.getBytes(), path.getBytes());
+				}
 				for (String patternLabel : matchingLabels) {
 					connection.setCommands().sAdd(pathsKey.getBytes(), patternLabel.getBytes());
 				}
