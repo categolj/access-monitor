@@ -1,6 +1,5 @@
 package am.ik.accessmonitor.alert;
 
-import java.time.Instant;
 import java.time.InstantSource;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -8,6 +7,7 @@ import java.util.Map;
 import java.util.Set;
 
 import am.ik.accessmonitor.AccessMonitorProperties;
+import am.ik.accessmonitor.InstanceId;
 import am.ik.accessmonitor.AccessMonitorProperties.AlertsProperties.AlertRuleProperties;
 import am.ik.accessmonitor.aggregation.Granularity;
 import am.ik.accessmonitor.aggregation.ValkeyKeyBuilder;
@@ -29,6 +29,8 @@ public class AlertEvaluator {
 
 	private static final Logger log = LoggerFactory.getLogger(AlertEvaluator.class);
 
+	private static final String LOCK_KEY = "access-monitor:lock:alert-evaluator";
+
 	private final StringRedisTemplate redisTemplate;
 
 	private final AccessMonitorProperties properties;
@@ -39,20 +41,29 @@ public class AlertEvaluator {
 
 	private final InstantSource instantSource;
 
+	private final InstanceId instanceId;
+
 	public AlertEvaluator(StringRedisTemplate redisTemplate, AccessMonitorProperties properties,
-			AlertManagerClient alertManagerClient, InstantSource instantSource) {
+			AlertManagerClient alertManagerClient, InstantSource instantSource, InstanceId instanceId) {
 		this.redisTemplate = redisTemplate;
 		this.properties = properties;
 		this.alertManagerClient = alertManagerClient;
 		this.instantSource = instantSource;
 		this.cooldownManager = new CooldownManager(instantSource);
+		this.instanceId = instanceId;
 	}
 
 	/**
-	 * Evaluates all configured alert rules.
+	 * Evaluates all configured alert rules. Uses a distributed lock to prevent concurrent
+	 * evaluation across multiple instances.
 	 */
 	@Scheduled(fixedDelayString = "${access-monitor.alerts.evaluation-interval}")
 	public void evaluate() {
+		Boolean acquired = this.redisTemplate.opsForValue()
+			.setIfAbsent(LOCK_KEY, this.instanceId.value(), this.properties.alerts().evaluationInterval());
+		if (!Boolean.TRUE.equals(acquired)) {
+			return;
+		}
 		for (AlertRuleProperties rule : this.properties.alerts().rules()) {
 			try {
 				evaluateRule(rule);

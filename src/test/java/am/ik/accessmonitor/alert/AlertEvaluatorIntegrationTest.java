@@ -81,6 +81,7 @@ class AlertEvaluatorIntegrationTest {
 		if (keys != null && !keys.isEmpty()) {
 			this.redisTemplate.delete(keys);
 		}
+		this.redisTemplate.delete("access-monitor:lock:alert-evaluator");
 	}
 
 	@AfterAll
@@ -175,6 +176,7 @@ class AlertEvaluatorIntegrationTest {
 		await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(receivedAlerts).hasSize(1));
 
 		// Second evaluation immediately should not fire again (cooldown 1s)
+		this.redisTemplate.delete("access-monitor:lock:alert-evaluator");
 		this.alertEvaluator.evaluate();
 
 		try {
@@ -195,6 +197,7 @@ class AlertEvaluatorIntegrationTest {
 			Thread.currentThread().interrupt();
 		}
 		receivedAlerts.clear();
+		this.redisTemplate.delete("access-monitor:lock:alert-evaluator");
 		this.alertEvaluator.evaluate();
 		await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(receivedAlerts).isNotEmpty());
 	}

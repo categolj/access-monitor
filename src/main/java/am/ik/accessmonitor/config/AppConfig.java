@@ -1,6 +1,9 @@
 package am.ik.accessmonitor.config;
 
 import java.time.InstantSource;
+import java.util.UUID;
+
+import am.ik.accessmonitor.InstanceId;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,6 +21,11 @@ public class AppConfig {
 	@Bean
 	InstantSource instantSource() {
 		return InstantSource.system();
+	}
+
+	@Bean
+	InstanceId instanceId() {
+		return new InstanceId(UUID.randomUUID().toString());
 	}
 
 	@Bean

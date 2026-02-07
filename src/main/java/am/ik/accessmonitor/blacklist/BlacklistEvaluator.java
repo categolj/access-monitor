@@ -1,10 +1,9 @@
 package am.ik.accessmonitor.blacklist;
 
-import java.time.Instant;
 import java.time.InstantSource;
-import java.util.UUID;
 
 import am.ik.accessmonitor.AccessMonitorProperties;
+import am.ik.accessmonitor.InstanceId;
 import am.ik.accessmonitor.aggregation.Granularity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,15 +36,15 @@ public class BlacklistEvaluator {
 
 	private final InstantSource instantSource;
 
-	private final String instanceId;
+	private final InstanceId instanceId;
 
 	public BlacklistEvaluator(StringRedisTemplate redisTemplate, AccessMonitorProperties properties,
-			BlacklistCooldownManager cooldownManager, InstantSource instantSource) {
+			BlacklistCooldownManager cooldownManager, InstantSource instantSource, InstanceId instanceId) {
 		this.redisTemplate = redisTemplate;
 		this.blacklistProperties = properties.blacklist();
 		this.cooldownManager = cooldownManager;
 		this.instantSource = instantSource;
-		this.instanceId = UUID.randomUUID().toString();
+		this.instanceId = instanceId;
 	}
 
 	/**
@@ -55,7 +54,7 @@ public class BlacklistEvaluator {
 	@Scheduled(fixedDelayString = "${access-monitor.blacklist.evaluation-interval}")
 	public void evaluate() {
 		Boolean acquired = this.redisTemplate.opsForValue()
-			.setIfAbsent(LOCK_KEY, this.instanceId, this.blacklistProperties.evaluationInterval());
+			.setIfAbsent(LOCK_KEY, this.instanceId.value(), this.blacklistProperties.evaluationInterval());
 		if (!Boolean.TRUE.equals(acquired)) {
 			return;
 		}
