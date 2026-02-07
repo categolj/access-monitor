@@ -1,0 +1,42 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+receivers:
+  otlp/otlphttp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+  otlp/rabbitmq:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4319
+exporters:
+  debug:
+    verbosity: detailed
+  otlphttp:
+    endpoint: ${OTLP_EXPORTER_ENDPOINT}
+    headers:
+      Authorization: "Basic dXNlcjpwYXNzd29yZA=="
+    compression: none
+    tls:
+      insecure: true
+  rabbitmq:
+    connection:
+      endpoint: amqp://rabbitmq:5672
+      auth:
+        plain:
+          username: guest
+          password: guest
+    routing:
+      exchange: access_exchange
+      routing_key: access_logs
+    durable: true
+service:
+  extensions: [health_check]
+  pipelines:
+    logs/otlphttp:
+      receivers: [otlp/otlphttp]
+      exporters: [debug, otlphttp]
+    logs/rabbitmq:
+      receivers: [otlp/rabbitmq]
+      exporters: [debug, rabbitmq]
