@@ -1,7 +1,5 @@
 package am.ik.accessmonitor.blacklist;
 
-import java.util.Set;
-
 import am.ik.accessmonitor.AccessMonitorProperties;
 import am.ik.accessmonitor.aggregation.Granularity;
 import am.ik.accessmonitor.aggregation.ValkeyKeyBuilder;
@@ -25,11 +23,11 @@ public class DisallowedHostAccessCounter {
 
 	private final StringRedisTemplate redisTemplate;
 
-	private final Set<String> allowedHosts;
+	private final AllowedHostMatcher allowedHostMatcher;
 
 	public DisallowedHostAccessCounter(StringRedisTemplate redisTemplate, AccessMonitorProperties properties) {
 		this.redisTemplate = redisTemplate;
-		this.allowedHosts = Set.copyOf(properties.blacklist().allowedHosts());
+		this.allowedHostMatcher = new AllowedHostMatcher(properties.blacklist().allowedHosts());
 	}
 
 	/**
@@ -37,7 +35,7 @@ public class DisallowedHostAccessCounter {
 	 * the allowed list.
 	 */
 	public void increment(AccessEvent event) {
-		if (this.allowedHosts.contains(event.host())) {
+		if (this.allowedHostMatcher.isAllowed(event.host())) {
 			return;
 		}
 
