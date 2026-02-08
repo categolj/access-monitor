@@ -1,5 +1,9 @@
 package am.ik.accessmonitor.ingest.web;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.zip.GZIPOutputStream;
+
 import am.ik.accessmonitor.TestcontainersConfiguration;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
@@ -116,6 +120,38 @@ class OtlpLogsControllerIntegrationTest {
 			.exchange()
 			.expectStatus()
 			.isAccepted();
+	}
+
+	@Test
+	void receiveGzipCompressedLogs() throws InvalidProtocolBufferException, IOException {
+		byte[] message = buildOtlpMessage("ik.am", "/test/gzip", "GET", 200);
+		byte[] compressed = gzipCompress(message);
+
+		this.client.post()
+			.uri("/v1/logs")
+			.contentType(MediaType.APPLICATION_PROTOBUF)
+			.header("Content-Encoding", "gzip")
+			.body(compressed)
+			.exchange()
+			.expectStatus()
+			.isAccepted();
+
+		Message received = this.rabbitTemplate.receive(this.testQueue, 5000);
+		assertThat(received).isNotNull();
+
+		ExportLogsServiceRequest request = ExportLogsServiceRequest.parseFrom(received.getBody());
+		LogRecord logRecord = request.getResourceLogs(0).getScopeLogs(0).getLogRecords(0);
+		assertThat(getStringAttribute(logRecord, "RequestHost")).isEqualTo("ik.am");
+		assertThat(getStringAttribute(logRecord, "RequestPath")).isEqualTo("/test/gzip");
+		assertThat(getStringAttribute(logRecord, "RequestMethod")).isEqualTo("GET");
+	}
+
+	private byte[] gzipCompress(byte[] data) throws IOException {
+		ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+		try (GZIPOutputStream gzipOutputStream = new GZIPOutputStream(byteArrayOutputStream)) {
+			gzipOutputStream.write(data);
+		}
+		return byteArrayOutputStream.toByteArray();
 	}
 
 	private byte[] buildOtlpMessage(String host, String path, String method, int status) {

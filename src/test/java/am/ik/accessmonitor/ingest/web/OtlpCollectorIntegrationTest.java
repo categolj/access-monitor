@@ -55,6 +55,8 @@ class OtlpCollectorIntegrationTest {
 
 	private static final int OTLP_HTTP_PORT = 4318;
 
+	private static final int OTLP_HTTP_GZIP_PORT = 4320;
+
 	private static final int RABBITMQ_EXPORTER_PORT = 4319;
 
 	private static final int HEALTH_CHECK_PORT = 13133;
@@ -85,7 +87,7 @@ class OtlpCollectorIntegrationTest {
 		.withClasspathResourceMapping("otel-collector-config.yaml", "/otel-collector-config.yaml", BindMode.READ_ONLY)
 		.withCommand("--config", "/otel-collector-config.yaml")
 		.withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger("otel-collector")))
-		.withExposedPorts(OTLP_HTTP_PORT, RABBITMQ_EXPORTER_PORT, HEALTH_CHECK_PORT)
+		.withExposedPorts(OTLP_HTTP_PORT, OTLP_HTTP_GZIP_PORT, RABBITMQ_EXPORTER_PORT, HEALTH_CHECK_PORT)
 		.waitingFor(Wait.forHttp("/").forPort(HEALTH_CHECK_PORT))
 		.dependsOn(rabbit);
 
@@ -93,6 +95,8 @@ class OtlpCollectorIntegrationTest {
 	StringRedisTemplate redisTemplate;
 
 	RestClient otlpHttpClient;
+
+	RestClient otlpHttpGzipClient;
 
 	RestClient rabbitmqExporterClient;
 
@@ -115,6 +119,9 @@ class OtlpCollectorIntegrationTest {
 		}
 		this.otlpHttpClient = restClientBuilder.baseUrl("http://localhost:" + collector.getMappedPort(OTLP_HTTP_PORT))
 			.build();
+		this.otlpHttpGzipClient = restClientBuilder
+			.baseUrl("http://localhost:" + collector.getMappedPort(OTLP_HTTP_GZIP_PORT))
+			.build();
 		this.rabbitmqExporterClient = restClientBuilder
 			.baseUrl("http://localhost:" + collector.getMappedPort(RABBITMQ_EXPORTER_PORT))
 			.build();
@@ -135,6 +142,25 @@ class OtlpCollectorIntegrationTest {
 		await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
 			String countValue = this.redisTemplate.opsForValue()
 				.get("access:cnt:1m:202602061530:ik.am:/entries/100:200:GET");
+			assertThat(countValue).isEqualTo("1");
+		});
+	}
+
+	@Test
+	void otlpLogViaOtlpHttpGzipExporter() {
+		byte[] body = buildOtlpMessage("ik.am", "/entries/150", "GET", 200, 100000000L, "2026-02-06T15:30:00.789Z",
+				"172.16.0.1");
+
+		this.otlpHttpGzipClient.post()
+			.uri("/v1/logs")
+			.contentType(MediaType.APPLICATION_PROTOBUF)
+			.body(body)
+			.retrieve()
+			.toBodilessEntity();
+
+		await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+			String countValue = this.redisTemplate.opsForValue()
+				.get("access:cnt:1m:202602061530:ik.am:/entries/150:200:GET");
 			assertThat(countValue).isEqualTo("1");
 		});
 	}
