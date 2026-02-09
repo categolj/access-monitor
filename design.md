@@ -7,16 +7,16 @@ TraefikのリクエストログをOpenTelemetry Collector経由でRabbitMQに送
 ## 2. アーキテクチャ
 
 ```
-traefik (OTLP/gRPC)
-    │
-    ▼
-OpenTelemetry Collector
-    ├─ receiver:  otlp (gRPC :4317)
-    ├─ processor: batch
-    ├─ processor: transform (属性フィルタリング、body/resource attributes除去)
-    ├─ exporter:  rabbitmq (protobuf)
-    │
-    ▼
+traefik (OTLP/gRPC)                    外部クライアント (HTTP)
+    │                                      │
+    ▼                                      ▼
+OpenTelemetry Collector           Spring Boot (HTTP Ingest)
+    ├─ receiver:  otlp              ├─ POST /v1/logs (protobuf)
+    ├─ processor: batch             └─ POST /api/ingest (JSON)
+    ├─ processor: transform                │
+    ├─ exporter:  rabbitmq                 │
+    │                                      │
+    ▼                                      ▼
 RabbitMQ (Topic Exchange: access_exchange)
     ├─ realtime_queue (non-durable)  ─→ SSE Consumer ─→ ブラウザダッシュボード
     └─ aggregation_queue (durable)   ─→ 集計Consumer ─→ Valkey
@@ -53,7 +53,7 @@ RabbitMQ (Topic Exchange: access_exchange)
 | 項目        | 技術                 |
 |-----------|--------------------|
 | フレームワーク   | Spring Boot 4.x    |
-| Java      | 21                 |
+| Java      | 25                 |
 | ビルド       | Maven              |
 | コードフォーマット | Spring Java Format |
 
@@ -174,12 +174,14 @@ Bootアプリケーションがotelcolのrabbitmq-exporterより先に起動す�
 
 ### 5.1 サービス構成
 
-1サービス構成。以下の4つの機能を1つのSpring Bootアプリケーション内に持つ。
+1サービス構成。以下の機能を1つのSpring Bootアプリケーション内に持つ。
 
+- **OTLP HTTP Ingest**: `POST /v1/logs`（protobuf）および `POST /api/ingest`（JSON）でアクセスログを直接受信し、RabbitMQへ転送。OpenTelemetry Collector経由の受信に加えて、HTTP直接受信もサポートする
 - **SSE Consumer**: `realtime_queue` からメッセージを受信し、SSE + JSONでブラウザに配信
 - **集計Consumer**: `aggregation_queue` からメッセージを受信し、Valkeyに集計データを書き込み
 - **AlertEvaluator**: `@Scheduled` でValkeyの集計値をポーリングし、閾値超過時にAlertmanagerへアラートをPOST
 - **BlacklistEvaluator**: `@Scheduled` でValkeyの非許可ホストアクセスカウントをポーリングし、閾値超過IPをログ出力、RabbitMQ経由でGitHub更新をトリガー
+- **SPA UI**: 静的リソース配信とSPAルーティングのフォワード
 
 ### 5.2 ドメインモデル
 
@@ -241,13 +243,18 @@ byte[] (AMQP message body)
 
 ### 5.4 依存ライブラリ
 
-| ライブラリ                            | 用途                    |
-|----------------------------------|-----------------------|
-| `spring-boot-starter-amqp`       | RabbitMQ接続・Consumer管理 |
-| `spring-boot-starter-web`        | SSEエンドポイント            |
-| `spring-boot-starter-data-redis` | Valkey接続              |
-| `opentelemetry-proto`            | OTLPメッセージのprotobuf定義  |
-| `protobuf-java`                  | protobufランタイム         |
+| ライブラリ                              | 用途                           |
+|------------------------------------|------------------------------|
+| `spring-boot-starter-amqp`        | RabbitMQ接続・Consumer管理        |
+| `spring-boot-starter-webmvc`      | REST API・SSEエンドポイント          |
+| `spring-boot-starter-data-redis`  | Valkey接続                     |
+| `spring-boot-starter-actuator`    | ヘルスチェック・メトリクスエンドポイント  |
+| `spring-boot-starter-opentelemetry` | OpenTelemetry連携（トレース・メトリクス） |
+| `spring-boot-starter-restclient`  | RestClient自動構成               |
+| `spring-boot-starter-security`    | HTTP Basic認証                 |
+| `micrometer-registry-prometheus`  | Prometheusメトリクスエクスポート       |
+| `opentelemetry-proto`             | OTLPメッセージのprotobuf定義         |
+| `protobuf-java`                   | protobufランタイム                |
 
 Alertmanager API・GitHub Contents APIへのHTTPリクエストには `RestClient`（`RestClient.Builder` をコンストラクタインジェクションで受け取り）を使用する。
 
@@ -261,9 +268,29 @@ CLAUDE.md に準拠する。主要なルールは以下の通り。
 - `@Configuration(proxyBeanMethods = false)` を使用
 - Lombok, Google Guava は不使用
 - `var` は不使用
-- Java 21の機能を積極的に活用（Records, Pattern Matching, Text Block等）
+- Java 25の機能を積極的に活用（Records, Pattern Matching, Text Block等）
 - Javadocとコメントは英語で記述
 - パッケージ構成は「package by feature」原則に従う
+
+## 5.6 セキュリティ
+
+`SecurityConfig` によりHTTP Basic認証を適用する。Spring Securityのデフォルトユーザー（`spring.security.user.name` / `password`）を使用する。
+
+| パス           | 認証          | 備考                        |
+|--------------|-------------|---------------------------|
+| `/actuator/**` | 認証なし（permitAll） | ヘルスチェック・メトリクスエンドポイント |
+| `/api/**`     | HTTP Basic認証 | 集計参照API・SSEストリーム・Ingest API |
+| `/v1/logs`    | HTTP Basic認証 | OTLP HTTP直接受信エンドポイント     |
+| その他           | 認証なし（permitAll） | 静的リソース・SPA UI             |
+
+CSRFはAPI利用のため無効化している。
+
+## 5.7 Ingestエンドポイント
+
+OpenTelemetry Collector経由の受信に加えて、以下のHTTP直接受信エンドポイントを提供する。
+
+- **`POST /v1/logs`** (`application/x-protobuf`): OTLP protobuf形式でログを受信し、そのままRabbitMQの `access_exchange` に転送する。`Content-Encoding: gzip` による圧縮転送をサポート。
+- **`POST /api/ingest`** (`application/json`): 簡易JSON形式でアクセスログを受信し、OTLP protobuf形式に変換してRabbitMQへ転送する。テスト・デバッグ用途。
 
 ## 6. SSE Consumer 設計
 
@@ -323,6 +350,8 @@ aggregation_queue
 4次元フル: host × path × statusCode × method（全粒度共通）
 
 パスの正規化は行わない。個別パスに加えて、事前定義されたパスパターンでも集計を行う。パスパターンは設定ファイルで正規表現として定義し、マッチしたパターンラベルで追加の集計キーを書き込む。1つのリクエストが複数のパターンにマッチした場合、マッチしたすべてのパターンに対して集計を行う。どのパターンにもマッチしない場合は、個別パスの集計のみとなる。
+
+各パスパターンには `dropOriginalPath` オプション（デフォルト: `false`）を設定できる。`true` の場合、パスパターンにマッチしたリクエストの個別パスの集計を省略し、パスパターンラベルでの集計のみを行う。これにより、集計不要な大量のユニークパス（攻撃的なURLスキャン等）によるValkeyメモリ消費を抑制できる。
 
 #### 7.2.2 キー命名規則
 
@@ -408,12 +437,12 @@ access:idx:1m:202602061530:ik.am:methods                      → { "GET", "POST
 
 #### 7.2.5 TTL（configurable）
 
-| 粒度  | デフォルトTTL         | 設定キー                                     |
-|-----|------------------|------------------------------------------|
-| 1分  | 24時間 (86,400秒)   | `access-monitor.valkey.ttl.one-minute`   |
-| 5分  | 7日 (604,800秒)    | `access-monitor.valkey.ttl.five-minutes` |
-| 1時間 | 30日 (2,592,000秒) | `access-monitor.valkey.ttl.one-hour`     |
-| 1日  | 90日 (7,776,000秒) | `access-monitor.valkey.ttl.one-day`      |
+| 粒度  | デフォルトTTL | 設定キー                                     |
+|-----|----------|------------------------------------------|
+| 1分  | 1d       | `access-monitor.valkey.ttl.one-minute`   |
+| 5分  | 7d       | `access-monitor.valkey.ttl.five-minutes` |
+| 1時間 | 30d      | `access-monitor.valkey.ttl.one-hour`     |
+| 1日  | 90d      | `access-monitor.valkey.ttl.one-day`      |
 
 #### 7.2.6 メモリ見積もり
 
@@ -491,6 +520,8 @@ Kubernetes クラスタのメモリ余裕: 128 GB → 十分に収容可能。
 AlertEvaluatorは `@Scheduled` でValkeyの集計データを定期ポーリング（15秒間隔）し、閾値を超過した場合にAlertmanager
 APIへアラートをPOSTする。RabbitMQキューは使用しない。Alertmanager APIへのHTTPリクエストには `RestClient` を使用する。
 
+`alertmanagerExternalUrl` を設定することで、アラートの `generatorURL` に使用される外部公開URLを `alertmanagerUrl`（内部通信用URL）とは別に指定できる。未設定の場合は `alertmanagerUrl` がフォールバックとして使用される（`effectiveAlertmanagerExternalUrl()` メソッド）。
+
 ```
 Valkey ←── AlertEvaluator (@Scheduled, 15秒間隔)
                 │
@@ -555,7 +586,7 @@ access-monitor:
       "description": "5xx rate: 15.2% (76/500) in last 1 minute"
     },
     "startsAt": "2026-02-06T15:30:00Z",
-    "generatorURL": "http://access-monitor:8080/alerts"
+    "generatorURL": "http://access-monitor:8080/alerts (alertmanager-external-url で変更可能)"
   }
 ]
 ```
@@ -643,8 +674,8 @@ access:disallowed-host:cnt:{granularity}:{timestamp}:{clientIp}
 #### 9.5.2 ログ出力フォーマット
 
 ```
-WARN  a.i.a.blacklist.BlacklistEvaluator - msg="Blacklist candidate detected" clientIp=47.128.110.92 requestCount=350 window=1m threshold=100
-WARN  a.i.a.blacklist.BlacklistEvaluator - msg="Blacklist candidate detected" clientIp=203.0.113.50 requestCount=520 window=1m threshold=100
+WARN  a.i.a.blacklist.BlacklistEvaluator - msg="Blacklist candidate detected" clientIp=47.128.110.92 requestCount=350 window=1m threshold=10
+WARN  a.i.a.blacklist.BlacklistEvaluator - msg="Blacklist candidate detected" clientIp=203.0.113.50 requestCount=520 window=1m threshold=10
 ```
 
 #### 9.5.3 GitHub連携によるIP自動ブロック
@@ -710,7 +741,7 @@ access-monitor:
     - ik.am
     - www.ik.am
     - api.ik.am
-    threshold: 100
+    threshold: 10
     window: 1m
     cooldown: 10m
     github:
@@ -729,7 +760,7 @@ access-monitor:
 | `enabled`             | ブラックリスト検知の有効/無効       | `true` |
 | `evaluation-interval` | 評価間隔                  | `15s`  |
 | `allowed-hosts`       | 許可ホスト名リスト             | (必須)   |
-| `threshold`           | ブラックリスト候補とするアクセス数閾値   | `100`  |
+| `threshold`           | ブラックリスト候補とするアクセス数閾値   | `10`   |
 | `window`              | 集計ウィンドウ（`1m` or `5m`） | `1m`   |
 | `cooldown`            | 同一IPの重複ログ出力抑制期間       | `10m`  |
 | `github.enabled`      | GitHub連携の有効/無効         | `false` |
@@ -890,7 +921,7 @@ GET /api/query/dimensions
 ### 10.6 クエリ実行時の制約
 
 - 時刻範囲が広すぎる場合にValkeyへの負荷が増大するため、1リクエストあたりの最大スロット数を制限する（デフォルト:
-  1,440スロット = 1分粒度で24時間分）
+  2,880スロット = 1分粒度で48時間分）
 - 最大スロット数を超えるリクエストには `400 Bad Request` を返し、粒度を大きくするか時刻範囲を狭めるよう案内する
 
 ## 11. 設定プロパティ
@@ -910,6 +941,13 @@ spring:
     redis:
       host: valkey
       port: 6379
+  security:
+    user:
+      name: user
+      password: password
+  threads:
+    virtual:
+      enabled: true
 
 access-monitor:
   sse:
@@ -919,20 +957,26 @@ access-monitor:
     prefetch-count: 200
     path-patterns:
     - label: "/entries/*"
-      regex: "^/entries/[^/]+$"
+      regex: "^/entries/[0-9]+(\\?.*)?$"
     - label: "/tags/*/entries"
-      regex: "^/tags/[^/]+/entries$"
+      regex: "^/tags/.+/entries(\\?.*)?$"
+      drop-original-path: true
     - label: "/categories/*/entries"
-      regex: "^/categories/[^/]+/entries$"
+      regex: "^/categories/.+/entries(\\?.*)?$"
+      drop-original-path: true
+    - label: "/assets/*"
+      regex: "^/assets/.+(\\?.*)?$"
+      drop-original-path: true
   valkey:
     ttl:
-      one-minute: 86400
-      five-minutes: 604800
-      one-hour: 2592000
-      one-day: 7776000
+      one-minute: 1d
+      five-minutes: 7d
+      one-hour: 30d
+      one-day: 90d
   alerts:
     enabled: true
     alertmanager-url: http://alertmanager:9093
+    alertmanager-external-url: https://alertmanager.example.com
     evaluation-interval: 15s
     rules:
     - name: HighErrorRate
@@ -971,7 +1015,7 @@ access-monitor:
     - ik.am
     - www.ik.am
     - api.ik.am
-    threshold: 100
+    threshold: 10
     window: 1m
     cooldown: 10m
     github:
@@ -984,7 +1028,7 @@ access-monitor:
       committer-name: access-monitor
       committer-email: access-monitor@example.com
   query:
-    max-slots: 1440
+    max-slots: 2880
 ```
 
 ### 11.2 ConfigurationProperties クラス
@@ -1014,7 +1058,8 @@ public record AccessMonitorProperties(
 
         public record PathPatternProperties(
                 String label,
-                String regex
+                String regex,
+                @DefaultValue("false") boolean dropOriginalPath
         ) {
         }
     }
@@ -1024,10 +1069,10 @@ public record AccessMonitorProperties(
     ) {
 
         public record TtlProperties(
-                @DefaultValue("86400") long oneMinute,
-                @DefaultValue("604800") long fiveMinutes,
-                @DefaultValue("2592000") long oneHour,
-                @DefaultValue("7776000") long oneDay
+                @DefaultValue("1d") Duration oneMinute,
+                @DefaultValue("7d") Duration fiveMinutes,
+                @DefaultValue("30d") Duration oneHour,
+                @DefaultValue("90d") Duration oneDay
         ) {
         }
     }
@@ -1035,9 +1080,19 @@ public record AccessMonitorProperties(
     public record AlertsProperties(
             @DefaultValue("true") boolean enabled,
             String alertmanagerUrl,
+            String alertmanagerExternalUrl,
             @DefaultValue("15s") Duration evaluationInterval,
-            List<AlertRuleProperties> rules
+            @DefaultValue List<AlertRuleProperties> rules
     ) {
+
+        /**
+         * Returns the external URL for Alertmanager, falling back to
+         * alertmanagerUrl if not explicitly set.
+         */
+        public String effectiveAlertmanagerExternalUrl() {
+            return (alertmanagerExternalUrl != null && !alertmanagerExternalUrl.isBlank())
+                    ? alertmanagerExternalUrl : alertmanagerUrl;
+        }
 
         public record AlertRuleProperties(
                 String name,
@@ -1058,7 +1113,7 @@ public record AccessMonitorProperties(
     public record BlacklistProperties(
             @DefaultValue("true") boolean enabled,
             @DefaultValue("15s") Duration evaluationInterval,
-            List<String> allowedHosts,
+            @DefaultValue List<String> allowedHosts,
             @DefaultValue("100") int threshold,
             @DefaultValue("1m") Duration window,
             @DefaultValue("10m") Duration cooldown,
@@ -1079,7 +1134,7 @@ public record AccessMonitorProperties(
     }
 
     public record QueryProperties(
-            @DefaultValue("1440") int maxSlots
+            @DefaultValue("2880") int maxSlots
     ) {
     }
 }
@@ -1096,13 +1151,24 @@ access-monitor/
 └── src/main/java/am/ik/accessmonitor/
     ├── AccessMonitorApplication.java
     ├── AccessMonitorProperties.java           # @ConfigurationProperties (record)
+    ├── InstanceId.java                        # 分散ロック用インスタンスID (record)
+    │
+    ├── config/                                # アプリケーション横断設定
+    │   ├── AppConfig.java                     #   InstantSource / InstanceId / TaskDecorator Bean定義
+    │   ├── RabbitMqTopologyConfig.java        #   @Configuration: Exchange/Queue/Binding Bean定義
+    │   ├── SecurityConfig.java                #   HTTP Basic認証・CSRF無効化設定
+    │   └── ValkeyConfig.java                  #   @Configuration: RedisTemplate設定
     │
     ├── event/                                 # アクセスイベント (ドメインモデル + 変換)
     │   ├── AccessEvent.java                   #   ドメインモデル (record)
     │   └── OtlpLogConverter.java              #   protobuf → AccessEvent 変換
     │
-    ├── messaging/                             # RabbitMQ トポロジ + Consumer
-    │   ├── RabbitMqTopologyConfig.java        #   @Configuration: Exchange/Queue/Binding Bean定義
+    ├── ingest/                                # アクセスログ直接受信
+    │   └── web/
+    │       ├── AccessLogController.java       #   POST /api/ingest (JSON → OTLP protobuf変換 → RabbitMQ)
+    │       └── OtlpLogsController.java        #   POST /v1/logs (OTLP protobuf → RabbitMQ)
+    │
+    ├── messaging/                             # RabbitMQ Consumer
     │   ├── RealtimeConsumer.java              #   @RabbitListener → SSE配信
     │   └── AggregationConsumer.java           #   @RabbitListener → Valkey書き込み (+ 非許可ホストIP集計)
     │
@@ -1112,9 +1178,10 @@ access-monitor/
     │       └── SseController.java             #   GET /api/stream/access
     │
     ├── aggregation/                           # Valkey 集計
+    │   ├── Granularity.java                   #   集計粒度定義 (enum: 1m/5m/1h/1d)
     │   ├── ValkeyAggregationService.java      #   Valkeyへの集計書き込みロジック
-    │   ├── PathPatternMatcher.java            #   パスパターンマッチング（正規表現→ラベル変換）
-    │   └── ValkeyConfig.java                  #   @Configuration: RedisTemplate設定
+    │   ├── ValkeyKeyBuilder.java              #   Valkeyキー名生成ユーティリティ
+    │   └── PathPatternMatcher.java            #   パスパターンマッチング（正規表現→ラベル変換）
     │
     ├── alert/                                 # アラート評価 + Alertmanager連携
     │   ├── AlertEvaluator.java                #   @Scheduled ポーリング・閾値判定
@@ -1126,14 +1193,19 @@ access-monitor/
     │   └── web/
     │       └── AccessQueryController.java     #   GET /api/query/access, GET /api/query/dimensions
     │
-    └── blacklist/                             # ブラックリスト検知 + GitHub連携
-        ├── BlacklistEvaluator.java            #   @Scheduled ポーリング・閾値判定・ログ出力・MQ送信
-        ├── BlacklistActionPublisher.java      #   RabbitMQ blacklist_action_queue へIP送信
-        ├── BlacklistActionConsumer.java       #   @RabbitListener → GitHubBlockedIpUpdater呼び出し
-        ├── GitHubBlockedIpClient.java         #   RestClient による GitHub Contents API呼び出し
-        ├── GitHubBlockedIpUpdater.java        #   YAML解析・IP追加・YAML再構築・GitHub更新
-        ├── DisallowedHostAccessCounter.java   #   Valkeyへの非許可ホストIP別カウント書き込み
-        └── BlacklistCooldownManager.java      #   デバウンス管理
+    ├── blacklist/                             # ブラックリスト検知 + GitHub連携
+    │   ├── AllowedHostMatcher.java            #   許可ホストマッチング（完全一致 + サフィックスマッチ）
+    │   ├── BlacklistEvaluator.java            #   @Scheduled ポーリング・閾値判定・ログ出力・MQ送信
+    │   ├── BlacklistActionPublisher.java      #   RabbitMQ blacklist_action_queue へIP送信
+    │   ├── BlacklistActionConsumer.java       #   @RabbitListener → GitHubBlockedIpUpdater呼び出し
+    │   ├── GitHubBlockedIpClient.java         #   RestClient による GitHub Contents API呼び出し
+    │   ├── GitHubBlockedIpUpdater.java        #   YAML解析・IP追加・YAML再構築・GitHub更新
+    │   ├── DisallowedHostAccessCounter.java   #   Valkeyへの非許可ホストIP別カウント書き込み
+    │   └── BlacklistCooldownManager.java      #   デバウンス管理
+    │
+    └── ui/                                    # ダッシュボードUI
+        └── web/
+            └── SpaForwardController.java      #   SPA静的リソースフォワード (/, /query → index.html)
 ```
 
 ## 13. スケールアウト設計
@@ -1155,9 +1227,9 @@ access-monitor/
 
 ### 13.3 RealtimeConsumer
 
-`realtime_queue` は単一キューのため、複数インスタンスではメッセージがラウンドロビン分配される。各インスタンスが全メッセージの一部しか受信できず、SSEクライアントに不完全なストリームが配信される問題がある。
+現在の実装では `realtime_queue`（名前付きキュー）を使用している。単一キューのため、複数インスタンスではメッセージがラウンドロビン分配される。各インスタンスが全メッセージの一部しか受信できず、SSEクライアントに不完全なストリームが配信される問題がある。
 
-**対応方針: anonymous exclusive queue**
+**将来の対応方針: anonymous exclusive queue**
 
 各インスタンスがインスタンス固有のexclusive queueを動的に作成し、`access_exchange` にバインドする。これにより全インスタンスが全メッセージのコピーを受信する。
 
