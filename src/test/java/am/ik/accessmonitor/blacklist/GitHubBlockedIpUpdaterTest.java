@@ -12,7 +12,8 @@ class GitHubBlockedIpUpdaterTest {
 			apiVersion: v1
 			kind: ConfigMap
 			metadata:
-			  name: blocked-ips
+			  name: haproxy-blocked-ips
+			  namespace: haproxy
 			  annotations:
 			    kapp.k14s.io/versioned: ""
 			data:
@@ -64,7 +65,8 @@ class GitHubBlockedIpUpdaterTest {
 				apiVersion: v1
 				kind: ConfigMap
 				metadata:
-				  name: blocked-ips
+				  name: haproxy-blocked-ips
+				  namespace: haproxy
 				  annotations:
 				    kapp.k14s.io/versioned: ""
 				data:

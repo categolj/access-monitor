@@ -90,7 +90,8 @@ public class GitHubBlockedIpUpdater {
 		sb.append("apiVersion: v1\n");
 		sb.append("kind: ConfigMap\n");
 		sb.append("metadata:\n");
-		sb.append("  name: blocked-ips\n");
+		sb.append("  name: haproxy-blocked-ips\n");
+		sb.append("  namespace: haproxy\n");
 		sb.append("  annotations:\n");
 		sb.append("    kapp.k14s.io/versioned: \"\"\n");
 		sb.append("data:\n");
