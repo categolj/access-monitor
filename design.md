@@ -22,7 +22,18 @@ RabbitMQ (Topic Exchange: access_exchange)
     └─ aggregation_queue (durable)   ─→ 集計Consumer ─→ Valkey
                                                           ▲
                            AlertEvaluator (@Scheduled) ───┘──→ Alertmanager
-                           BlacklistEvaluator (@Scheduled) ──┘──→ ログ出力 (→ 将来: ブラックリスト追加)
+                           BlacklistEvaluator (@Scheduled) ──┘──→ WARNログ出力
+                                                                 ──→ blacklist_action_queue (RabbitMQ)
+                                                                       │
+                                                                       ▼
+                                                               BlacklistActionConsumer
+                                                                       │
+                                                                       ▼
+                                                               GitHub Contents API
+                                                               (k8s-gitops/blocked-ips.yaml)
+                                                                       │
+                                                                       ▼
+                                                               HAProxy ConfigMap 更新 (GitOps)
 ```
 
 ### 2.1 コンポーネント一覧
@@ -32,9 +43,10 @@ RabbitMQ (Topic Exchange: access_exchange)
 | Traefik                 | リバースプロキシ、OTLPでアクセスログを送信            | Kubernetes      |
 | OpenTelemetry Collector | ログ受信・加工・RabbitMQへの転送               | Kubernetes      |
 | RabbitMQ                | メッセージブローカー                         | Kubernetes      |
-| Spring Boot アプリケーション    | SSE配信・集計・アラート評価・ブラックリスト検知（1サービス構成） | Kubernetes      |
+| Spring Boot アプリケーション    | SSE配信・集計・アラート評価・ブラックリスト検知・IP自動ブロック（1サービス構成） | Kubernetes      |
 | Valkey                  | 集計データストア（Redis互換）                  | Kubernetes      |
 | Alertmanager            | アラート通知管理                           | Kubernetes (既存) |
+| GitHub API              | GitOpsリポジトリのblocked-ips.yaml更新     | github.com      |
 
 ### 2.2 技術スタック
 
@@ -139,10 +151,13 @@ OTLPメッセージ内のTraefik属性と内部ドメインモデルの対応関
 
 ### 4.2 Queues
 
-| キュー名                | Durable | Auto-Delete | Binding Key   | 用途          |
-|---------------------|---------|-------------|---------------|-------------|
-| `realtime_queue`    | false   | true        | `access_logs` | SSEリアルタイム配信 |
-| `aggregation_queue` | true    | false       | `access_logs` | 集計処理        |
+| キュー名                     | Durable | Auto-Delete | Binding Key   | 用途                    |
+|--------------------------|---------|-------------|---------------|-----------------------|
+| `realtime_queue`         | false   | true        | `access_logs` | SSEリアルタイム配信           |
+| `aggregation_queue`      | true    | false       | `access_logs` | 集計処理                  |
+| `blacklist_action_queue` | true    | false       | (default exchange) | ブロックIP GitOps更新 |
+
+`blacklist_action_queue` はdefault exchange（キュー名がそのままrouting key）を使用する。topic/fanoutルーティングが不要な1対1のワークキューパターンであるため。`x-single-active-consumer: true` を設定し、スケールアウト時も直列処理を保証する（詳細は13.6節）。
 
 ### 4.3 トポロジの自動作成
 
@@ -164,7 +179,7 @@ Bootアプリケーションがotelcolのrabbitmq-exporterより先に起動す�
 - **SSE Consumer**: `realtime_queue` からメッセージを受信し、SSE + JSONでブラウザに配信
 - **集計Consumer**: `aggregation_queue` からメッセージを受信し、Valkeyに集計データを書き込み
 - **AlertEvaluator**: `@Scheduled` でValkeyの集計値をポーリングし、閾値超過時にAlertmanagerへアラートをPOST
-- **BlacklistEvaluator**: `@Scheduled` でValkeyの非許可ホストアクセスカウントをポーリングし、閾値超過IPをログ出力
+- **BlacklistEvaluator**: `@Scheduled` でValkeyの非許可ホストアクセスカウントをポーリングし、閾値超過IPをログ出力、RabbitMQ経由でGitHub更新をトリガー
 
 ### 5.2 ドメインモデル
 
@@ -234,7 +249,7 @@ byte[] (AMQP message body)
 | `opentelemetry-proto`            | OTLPメッセージのprotobuf定義  |
 | `protobuf-java`                  | protobufランタイム         |
 
-Alertmanager APIへのHTTPリクエストには `RestClient`（`RestClient.Builder` をコンストラクタインジェクションで受け取り）を使用する。
+Alertmanager API・GitHub Contents APIへのHTTPリクエストには `RestClient`（`RestClient.Builder` をコンストラクタインジェクションで受け取り）を使用する。
 
 ### 5.5 コーディング規約
 
@@ -553,7 +568,9 @@ access-monitor:
 
 ### 9.1 概要
 
-想定されていないホスト名（許可リストに含まれないホスト名）に対して大量のアクセスを送信しているクライアントIPを検知し、ブラックリスト候補としてログ出力する。ブラックリストへの実際の追加・適用は将来の機能拡張で実装する。
+想定されていないホスト名（許可リストに含まれないホスト名）に対して大量のアクセスを送信しているクライアントIPを検知し、ブラックリスト候補としてログ出力する。さらに、GitHub連携が有効な場合は、GitOpsリポジトリ（`making/k8s-gitops`）の `blocked-ips.yaml`（Kubernetes ConfigMap）にIPを自動追加し、HAProxyでのIPブロックを実現する。
+
+RabbitMQキューを介した非同期処理により、耐久性（再起動対応）、直列化（SHA競合回避）、リトライ（API失敗時の自動再処理）を実現する。
 
 ### 9.2 処理フロー
 
@@ -567,7 +584,19 @@ Valkey ←── BlacklistEvaluator (@Scheduled, 15秒間隔)
                 │
                 ▼ (閾値超過時)
             WARNログ出力
-            (将来: ブラックリスト追加API呼び出し)
+            BlacklistActionPublisher.publish(clientIp)
+                │
+                ▼
+            RabbitMQ: blacklist_action_queue (default exchange)
+                │
+                ▼
+            BlacklistActionConsumer (@RabbitListener)
+                │
+                ▼
+            GitHubBlockedIpUpdater.addBlockedIp(clientIp)
+                ├─ GitHubBlockedIpClient.getFile() → content + SHA取得
+                ├─ YAML解析 → IP重複チェック → /32追加（ソート済み位置）
+                └─ GitHubBlockedIpClient.updateFile() → コミット&プッシュ
 ```
 
 ### 9.3 許可ホストリスト
@@ -618,13 +647,57 @@ WARN  a.i.a.blacklist.BlacklistEvaluator - msg="Blacklist candidate detected" cl
 WARN  a.i.a.blacklist.BlacklistEvaluator - msg="Blacklist candidate detected" clientIp=203.0.113.50 requestCount=520 window=1m threshold=100
 ```
 
-#### 9.5.3 将来の拡張ポイント
+#### 9.5.3 GitHub連携によるIP自動ブロック
 
-ログ出力部分を拡張し、以下を実装予定:
+BlacklistEvaluatorが閾値超過IPを検知すると、`BlacklistActionPublisher` がRabbitMQの `blacklist_action_queue` にクライアントIPを送信する。`BlacklistActionConsumer` がメッセージを受信し、`GitHubBlockedIpUpdater` を通じてGitHubのblocked-ips.yamlを更新する。
 
-- ブラックリストへのIP追加（Valkey Setで管理）
-- Traefik IPAllowList ミドルウェアとの連携
-- ブラックリスト管理REST API（追加・削除・一覧）
+**GitHubBlockedIpClient**: GitHub Contents APIクライアント。`RestClient.Builder` をコンストラクタインジェクションで受け取り、Bearer token認証でAPIを呼び出す。
+
+- `getFile()`: ファイルのcontent（Base64デコード）とSHAを取得
+- `updateFile(content, sha, commitMessage)`: Base64エンコードしたcontentとSHA（楽観的ロック）でファイルを更新
+
+**GitHubBlockedIpUpdater**: メインロジック。
+
+1. GitHub APIでファイル取得（content + SHA）
+2. SnakeYAMLでConfigMap解析、`data.blocked-ips.txt` のIP一覧抽出
+3. IP重複チェック（既存ならスキップ、DEBUGログ）
+4. `/32` 付与（既にCIDR表記なら維持）
+5. `Collections.binarySearch` でソート済み位置に挿入
+6. ConfigMap YAML再構築（StringBuilderで固定フォーマット出力、kappアノテーション・block scalar保持）
+7. GitHub APIでファイル更新（SHA指定）
+
+**YAML再構築について:** SnakeYAMLのDumperではなくStringBuilderで固定フォーマット出力する。理由:
+
+- `kapp.k14s.io/versioned: ""` のクォーティング保持
+- block scalar（`|`）の確実な出力
+- GitOps diffの最小化
+
+**生成されるConfigMap:**
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haproxy-blocked-ips
+  namespace: haproxy
+  annotations:
+    kapp.k14s.io/versioned: ""
+data:
+  blocked-ips.txt: |
+    1.2.3.4/32
+    5.6.7.8/32
+```
+
+**エラーハンドリング:**
+
+| ケース | 動作 |
+|---|---|
+| GitHub API障害 | 例外伝播 -> RabbitMQ NACK/requeue -> 自動リトライ |
+| SHA競合（409） | 例外伝播 -> リトライ時に最新SHA再取得で自動解決 |
+| IP重複 | スキップ（DEBUGログ）、メッセージACK |
+| トークン不正（401/403） | 例外伝播 -> リトライ継続（運用者が設定修正要） |
+
+**条件付き有効化:** すべてのGitHub連携コンポーネント（`GitHubBlockedIpClient`, `GitHubBlockedIpUpdater`, `BlacklistActionPublisher`, `BlacklistActionConsumer`）は `@ConditionalOnProperty(name = "access-monitor.blacklist.github.enabled", havingValue = "true")` で制御される。BlacklistEvaluatorは `ObjectProvider<BlacklistActionPublisher>` でOptional依存とし、GitHub連携が無効な場合はログ出力のみ行う。
 
 ### 9.6 設定プロパティ
 
@@ -640,6 +713,15 @@ access-monitor:
     threshold: 100
     window: 1m
     cooldown: 10m
+    github:
+      enabled: false
+      access-token: ${ACCESS_MONITOR_BLACKLIST_GITHUB_ACCESS_TOKEN:}
+      api-url: https://api.github.com
+      owner: making
+      repo: k8s-gitops
+      path: lemon/platform/haproxy/config/blocked-ips.yaml
+      committer-name: access-monitor
+      committer-email: access-monitor@example.com
 ```
 
 | プロパティ                 | 説明                    | デフォルト  |
@@ -650,6 +732,14 @@ access-monitor:
 | `threshold`           | ブラックリスト候補とするアクセス数閾値   | `100`  |
 | `window`              | 集計ウィンドウ（`1m` or `5m`） | `1m`   |
 | `cooldown`            | 同一IPの重複ログ出力抑制期間       | `10m`  |
+| `github.enabled`      | GitHub連携の有効/無効         | `false` |
+| `github.access-token` | GitHub Personal Access Token | (環境変数で提供) |
+| `github.api-url`      | GitHub API URL          | `https://api.github.com` |
+| `github.owner`        | リポジトリオーナー              | `making` |
+| `github.repo`         | リポジトリ名                 | `k8s-gitops` |
+| `github.path`         | blocked-ips.yamlのパス     | `lemon/platform/haproxy/config/blocked-ips.yaml` |
+| `github.committer-name` | コミッター名               | `access-monitor` |
+| `github.committer-email` | コミッターメール             | `access-monitor@example.com` |
 
 ## 10. 集計データ参照API設計
 
@@ -884,6 +974,15 @@ access-monitor:
     threshold: 100
     window: 1m
     cooldown: 10m
+    github:
+      enabled: false
+      access-token: ${ACCESS_MONITOR_BLACKLIST_GITHUB_ACCESS_TOKEN:}
+      api-url: https://api.github.com
+      owner: making
+      repo: k8s-gitops
+      path: lemon/platform/haproxy/config/blocked-ips.yaml
+      committer-name: access-monitor
+      committer-email: access-monitor@example.com
   query:
     max-slots: 1440
 ```
@@ -962,8 +1061,21 @@ public record AccessMonitorProperties(
             List<String> allowedHosts,
             @DefaultValue("100") int threshold,
             @DefaultValue("1m") Duration window,
-            @DefaultValue("10m") Duration cooldown
+            @DefaultValue("10m") Duration cooldown,
+            GitHubProperties github
     ) {
+
+        public record GitHubProperties(
+                @DefaultValue("false") boolean enabled,
+                String accessToken,
+                @DefaultValue("https://api.github.com") String apiUrl,
+                @DefaultValue("making") String owner,
+                @DefaultValue("k8s-gitops") String repo,
+                @DefaultValue("lemon/platform/haproxy/config/blocked-ips.yaml") String path,
+                @DefaultValue("access-monitor") String committerName,
+                @DefaultValue("access-monitor@example.com") String committerEmail
+        ) {
+        }
     }
 
     public record QueryProperties(
@@ -1014,9 +1126,13 @@ access-monitor/
     │   └── web/
     │       └── AccessQueryController.java     #   GET /api/query/access, GET /api/query/dimensions
     │
-    └── blacklist/                             # ブラックリスト検知
-        ├── BlacklistEvaluator.java            #   @Scheduled ポーリング・閾値判定・ログ出力
-        ├── DisallowedHostAccessCounter.java      #   Valkeyへの非許可ホストIP別カウント書き込み
+    └── blacklist/                             # ブラックリスト検知 + GitHub連携
+        ├── BlacklistEvaluator.java            #   @Scheduled ポーリング・閾値判定・ログ出力・MQ送信
+        ├── BlacklistActionPublisher.java      #   RabbitMQ blacklist_action_queue へIP送信
+        ├── BlacklistActionConsumer.java       #   @RabbitListener → GitHubBlockedIpUpdater呼び出し
+        ├── GitHubBlockedIpClient.java         #   RestClient による GitHub Contents API呼び出し
+        ├── GitHubBlockedIpUpdater.java        #   YAML解析・IP追加・YAML再構築・GitHub更新
+        ├── DisallowedHostAccessCounter.java   #   Valkeyへの非許可ホストIP別カウント書き込み
         └── BlacklistCooldownManager.java      #   デバウンス管理
 ```
 
@@ -1024,12 +1140,13 @@ access-monitor/
 
 ### 13.1 コンポーネント別スケールアウト特性
 
-| コンポーネント             | スケールアウト | 備考                               |
-|---------------------|---------|----------------------------------|
-| AggregationConsumer | ○ 可能    | Valkeyへの書き込みがアトミック加算のため安全        |
-| RealtimeConsumer    | △ 要対応   | anonymous exclusive queue方式で対応可能 |
-| AlertEvaluator      | △ 要対応   | 分散ロックまたはAlertmanagerのdedup機能で対応  |
-| BlacklistEvaluator  | △ 要対応   | 分散ロックで単一インスタンス実行に制限              |
+| コンポーネント                | スケールアウト | 備考                               |
+|------------------------|---------|----------------------------------|
+| AggregationConsumer    | ○ 可能    | Valkeyへの書き込みがアトミック加算のため安全        |
+| RealtimeConsumer       | △ 要対応   | anonymous exclusive queue方式で対応可能 |
+| AlertEvaluator         | △ 要対応   | 分散ロックまたはAlertmanagerのdedup機能で対応  |
+| BlacklistEvaluator     | △ 要対応   | 分散ロックで単一インスタンス実行に制限              |
+| BlacklistActionConsumer | ○ 対応済   | Single Active Consumerで直列処理を保証   |
 
 ### 13.2 AggregationConsumer
 
@@ -1085,7 +1202,23 @@ Valkeyの `SET NX EX` を使用し、評価サイクルごとにリーダーを�
 TTL:  評価間隔と同程度（例: 15秒）
 ```
 
-BlacklistEvaluatorはログ出力が主目的であり、Alertmanagerのようなdedup機構がないため、分散ロックによる制御が必要となる。将来ブラックリスト追加機能を実装する際も、分散ロックにより二重登録を防止できる。
+BlacklistEvaluatorはログ出力が主目的であり、Alertmanagerのようなdedup機構がないため、分散ロックによる制御が必要となる。GitHub連携（BlacklistActionPublisher）も分散ロック配下で呼び出されるため、重複メッセージの送信は抑制される。
+
+### 13.6 BlacklistActionConsumer
+
+`blacklist_action_queue` はGitHub Contents APIを使ったファイル更新を行うため、同一ファイルへの並列書き込みはSHA競合（409 Conflict）を引き起こす。
+
+**対応方針: Single Active Consumer**
+
+RabbitMQの `x-single-active-consumer: true` キュー引数を設定し、複数インスタンスが存在しても常に1つのコンシューマーのみがactiveになるようにする。activeなコンシューマーの接続が切れた場合（worker再起動等）、RabbitMQが自動的に別のコンシューマーをactiveに昇格させる。
+
+この方式により:
+
+- 直列処理が保証され、SHA競合が発生しない
+- worker再起動時にフェイルオーバーが自動で行われる
+- 処理中のメッセージはACK前にworkerが落ちた場合、requeueされて次のactiveコンシューマーが再処理する
+
+`@Scheduled` タスク（AlertEvaluator, BlacklistEvaluator）にはSingle Active Consumerは適用できない。これらはメッセージ駆動ではなくタイマー駆動（プル型）であるため、Valkeyの分散ロックで排他制御する。
 
 ## 14. 注意事項
 
