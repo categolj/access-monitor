@@ -2,6 +2,8 @@ package am.ik.accessmonitor.config;
 
 import am.ik.accessmonitor.AccessMonitorProperties;
 
+import java.util.Map;
+
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
@@ -18,6 +20,11 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration(proxyBeanMethods = false)
 public class RabbitMqTopologyConfig {
+
+	/**
+	 * Queue name for blacklist action messages.
+	 */
+	public static final String BLACKLIST_ACTION_QUEUE = "blacklist_action_queue";
 
 	/**
 	 * Topic exchange for access logs.
@@ -41,6 +48,16 @@ public class RabbitMqTopologyConfig {
 	@Bean
 	Queue aggregationQueue() {
 		return new Queue("aggregation_queue", true, false, false);
+	}
+
+	/**
+	 * Durable queue for blacklist action processing via the default exchange. Uses single
+	 * active consumer to ensure serial processing across scaled-out instances, avoiding
+	 * GitHub SHA conflicts.
+	 */
+	@Bean
+	Queue blacklistActionQueue() {
+		return new Queue(BLACKLIST_ACTION_QUEUE, true, false, false, Map.of("x-single-active-consumer", true));
 	}
 
 	/**

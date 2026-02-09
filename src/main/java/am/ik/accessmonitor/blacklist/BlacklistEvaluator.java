@@ -8,6 +8,7 @@ import am.ik.accessmonitor.aggregation.Granularity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
@@ -38,13 +39,17 @@ public class BlacklistEvaluator {
 
 	private final InstanceId instanceId;
 
+	private final ObjectProvider<BlacklistActionPublisher> blacklistActionPublisher;
+
 	public BlacklistEvaluator(StringRedisTemplate redisTemplate, AccessMonitorProperties properties,
-			BlacklistCooldownManager cooldownManager, InstantSource instantSource, InstanceId instanceId) {
+			BlacklistCooldownManager cooldownManager, InstantSource instantSource, InstanceId instanceId,
+			ObjectProvider<BlacklistActionPublisher> blacklistActionPublisher) {
 		this.redisTemplate = redisTemplate;
 		this.blacklistProperties = properties.blacklist();
 		this.cooldownManager = cooldownManager;
 		this.instantSource = instantSource;
 		this.instanceId = instanceId;
+		this.blacklistActionPublisher = blacklistActionPublisher;
 	}
 
 	/**
@@ -81,6 +86,7 @@ public class BlacklistEvaluator {
 								clientIp, requestCount, this.blacklistProperties.window(),
 								this.blacklistProperties.threshold());
 						this.cooldownManager.recordFiring(clientIp);
+						this.blacklistActionPublisher.ifAvailable(publisher -> publisher.publish(clientIp));
 					}
 				}
 			}
