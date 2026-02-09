@@ -242,8 +242,9 @@ class UiEndToEndTest {
 
 	@Test
 	void queryPageLoadsAndShowsResults() {
-		// Seed Valkey with test aggregation data
-		Instant now = Instant.now();
+		// Seed Valkey with test aggregation data (use mid-minute to avoid boundary
+		// issues)
+		Instant now = Instant.parse("2026-02-06T15:30:30Z");
 		Granularity granularity = Granularity.ONE_MINUTE;
 		String ts = granularity.format(now);
 		String host = "test.example.com";
@@ -282,7 +283,7 @@ class UiEndToEndTest {
 	void queryPageShowsWildcardPathAggregation() {
 		// Ingest events with different /entries/{id} paths via the ingest API
 		RestClient restClient = RestClient.builder().baseUrl(this.baseUrl).build();
-		Instant now = Instant.now();
+		Instant now = Instant.parse("2026-02-06T16:30:30Z");
 		String host = "wildcard.example.com";
 		String[][] testData = {
 				// path, statusCode, durationNs

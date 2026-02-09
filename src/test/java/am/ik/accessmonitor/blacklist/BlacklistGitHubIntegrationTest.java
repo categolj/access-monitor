@@ -7,6 +7,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.InstantSource;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Set;
@@ -26,13 +27,17 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.BDDMockito.given;
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 class BlacklistGitHubIntegrationTest {
+
+	static final Instant FIXED_TIME = Instant.parse("2026-01-15T12:30:30Z");
 
 	static HttpServer mockGitHub;
 
@@ -56,6 +61,9 @@ class BlacklistGitHubIntegrationTest {
 
 	@Autowired
 	BlacklistEvaluator blacklistEvaluator;
+
+	@MockitoBean
+	InstantSource instantSource;
 
 	@Autowired
 	StringRedisTemplate redisTemplate;
@@ -106,6 +114,7 @@ class BlacklistGitHubIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		given(this.instantSource.instant()).willReturn(FIXED_TIME);
 		receivedPutBodies.clear();
 		Set<String> keys = this.redisTemplate.keys("access:*");
 		if (keys != null && !keys.isEmpty()) {
@@ -124,9 +133,8 @@ class BlacklistGitHubIntegrationTest {
 	@Test
 	@SuppressWarnings("unchecked")
 	void detectsBlacklistCandidateAndUpdatesGitHub() throws Exception {
-		Instant now = Instant.now();
 		Granularity granularity = Granularity.ONE_MINUTE;
-		String ts = granularity.format(now);
+		String ts = granularity.format(FIXED_TIME);
 		String clientIp = "203.0.113.99";
 
 		// Seed disallowed-host count exceeding threshold (10)

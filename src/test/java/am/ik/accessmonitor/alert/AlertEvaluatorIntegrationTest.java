@@ -6,6 +6,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.InstantSource;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -24,13 +25,17 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.BDDMockito.given;
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 class AlertEvaluatorIntegrationTest {
+
+	static final Instant FIXED_TIME = Instant.parse("2026-01-15T12:30:30Z");
 
 	static HttpServer mockAlertmanager;
 
@@ -38,6 +43,9 @@ class AlertEvaluatorIntegrationTest {
 
 	@Autowired
 	AlertEvaluator alertEvaluator;
+
+	@MockitoBean
+	InstantSource instantSource;
 
 	@Autowired
 	StringRedisTemplate redisTemplate;
@@ -76,6 +84,7 @@ class AlertEvaluatorIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		given(this.instantSource.instant()).willReturn(FIXED_TIME);
 		receivedAlerts.clear();
 		Set<String> keys = this.redisTemplate.keys("access:*");
 		if (keys != null && !keys.isEmpty()) {
@@ -93,9 +102,8 @@ class AlertEvaluatorIntegrationTest {
 
 	@Test
 	void firesHighErrorRateAlert() {
-		Instant now = Instant.now();
 		Granularity granularity = Granularity.ONE_MINUTE;
-		String ts = granularity.format(now);
+		String ts = granularity.format(FIXED_TIME);
 		String host = "ik.am";
 
 		// Seed Valkey: 2 successful + 8 errors = 80% error rate (threshold: 10%)
@@ -116,9 +124,8 @@ class AlertEvaluatorIntegrationTest {
 
 	@Test
 	void doesNotFireWhenErrorRateBelowThreshold() {
-		Instant now = Instant.now();
 		Granularity granularity = Granularity.ONE_MINUTE;
-		String ts = granularity.format(now);
+		String ts = granularity.format(FIXED_TIME);
 		String host = "ik.am";
 
 		// Seed Valkey: 95 successful + 5 errors = 5% error rate (threshold: 10%)
@@ -128,21 +135,14 @@ class AlertEvaluatorIntegrationTest {
 
 		this.alertEvaluator.evaluate();
 
-		// Brief wait then assert no alerts fired
-		try {
-			Thread.sleep(1000);
-		}
-		catch (InterruptedException ex) {
-			Thread.currentThread().interrupt();
-		}
+		// evaluate() is synchronous, so no alerts should have been fired
 		assertThat(receivedAlerts).isEmpty();
 	}
 
 	@Test
 	void firesSlowResponseAlert() {
-		Instant now = Instant.now();
 		Granularity granularity = Granularity.ONE_MINUTE;
-		String ts = granularity.format(now);
+		String ts = granularity.format(FIXED_TIME);
 		String host = "ik.am";
 
 		// Seed duration: avg 1000ms = 1_000_000_000 ns per request (threshold: 500ms)
@@ -162,9 +162,8 @@ class AlertEvaluatorIntegrationTest {
 
 	@Test
 	void respectsCooldownPeriod() {
-		Instant now = Instant.now();
 		Granularity granularity = Granularity.ONE_MINUTE;
-		String ts = granularity.format(now);
+		String ts = granularity.format(FIXED_TIME);
 		String host = "cooldown.example.com";
 
 		seedCount(granularity, ts, host, "/page", 200, "GET", 1);
@@ -179,23 +178,12 @@ class AlertEvaluatorIntegrationTest {
 		this.redisTemplate.delete("access-monitor:lock:alert-evaluator");
 		this.alertEvaluator.evaluate();
 
-		try {
-			Thread.sleep(500);
-		}
-		catch (InterruptedException ex) {
-			Thread.currentThread().interrupt();
-		}
-		// Still only 1 alert due to cooldown (SlowResponse won't fire because no duration
-		// data for /page)
+		// Still only 1 alert due to cooldown (SlowResponse won't fire because no
+		// duration data for /page)
 		assertThat(receivedAlerts).hasSize(1);
 
-		// Wait for cooldown to expire then evaluate again
-		try {
-			Thread.sleep(1000);
-		}
-		catch (InterruptedException ex) {
-			Thread.currentThread().interrupt();
-		}
+		// Advance time past cooldown (1s) and evaluate again
+		given(this.instantSource.instant()).willReturn(FIXED_TIME.plusSeconds(2));
 		receivedAlerts.clear();
 		this.redisTemplate.delete("access-monitor:lock:alert-evaluator");
 		this.alertEvaluator.evaluate();
@@ -204,22 +192,23 @@ class AlertEvaluatorIntegrationTest {
 
 	@Test
 	void endToEndRabbitMqToAlert(@Autowired org.springframework.amqp.rabbit.core.RabbitTemplate rabbitTemplate) {
+		String startUtc = FIXED_TIME.toString();
 		// Send many 500-error OTLP messages to RabbitMQ
 		for (int i = 0; i < 10; i++) {
-			byte[] message = buildOtlpMessage("alert-test.example.com", "/api/test", "GET", 500, 50000000L,
-					Instant.now().toString(), "10.0.0." + i);
+			byte[] message = buildOtlpMessage("alert-test.example.com", "/api/test", "GET", 500, 50000000L, startUtc,
+					"10.0.0." + i);
 			rabbitTemplate.convertAndSend("access_exchange", "access_logs", message);
 		}
 		// Send a few 200 responses
 		for (int i = 0; i < 2; i++) {
-			byte[] message = buildOtlpMessage("alert-test.example.com", "/api/test", "GET", 200, 50000000L,
-					Instant.now().toString(), "10.0.0.100");
+			byte[] message = buildOtlpMessage("alert-test.example.com", "/api/test", "GET", 200, 50000000L, startUtc,
+					"10.0.0.100");
 			rabbitTemplate.convertAndSend("access_exchange", "access_logs", message);
 		}
 
 		// Wait for aggregation to complete
 		Granularity granularity = Granularity.ONE_MINUTE;
-		String ts = granularity.format(Instant.now());
+		String ts = granularity.format(FIXED_TIME);
 		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
 			Set<String> hosts = this.redisTemplate.opsForSet().members(ValkeyKeyBuilder.hostsIndexKey(granularity, ts));
 			assertThat(hosts).contains("alert-test.example.com");
