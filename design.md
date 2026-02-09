@@ -18,7 +18,7 @@ OpenTelemetry Collector           Spring Boot (HTTP Ingest)
     │                                      │
     ▼                                      ▼
 RabbitMQ (Topic Exchange: access_exchange)
-    ├─ realtime_queue (non-durable)  ─→ SSE Consumer ─→ ブラウザダッシュボード
+    ├─ exclusive queue (per instance) ─→ SSE Consumer ─→ ブラウザダッシュボード
     └─ aggregation_queue (durable)   ─→ 集計Consumer ─→ Valkey
                                                           ▲
                            AlertEvaluator (@Scheduled) ───┘──→ Alertmanager
@@ -153,7 +153,7 @@ OTLPメッセージ内のTraefik属性と内部ドメインモデルの対応関
 
 | キュー名                     | Durable | Auto-Delete | Binding Key   | 用途                    |
 |--------------------------|---------|-------------|---------------|-----------------------|
-| `realtime_queue`         | false   | true        | `access_logs` | SSEリアルタイム配信           |
+| (anonymous exclusive)    | false   | true        | `access_logs` | SSEリアルタイム配信（インスタンスごとに自動作成） |
 | `aggregation_queue`      | true    | false       | `access_logs` | 集計処理                  |
 | `blacklist_action_queue` | true    | false       | (default exchange) | ブロックIP GitOps更新 |
 
@@ -177,7 +177,7 @@ Bootアプリケーションがotelcolのrabbitmq-exporterより先に起動す�
 1サービス構成。以下の機能を1つのSpring Bootアプリケーション内に持つ。
 
 - **OTLP HTTP Ingest**: `POST /v1/logs`（protobuf）および `POST /api/ingest`（JSON）でアクセスログを直接受信し、RabbitMQへ転送。OpenTelemetry Collector経由の受信に加えて、HTTP直接受信もサポートする
-- **SSE Consumer**: `realtime_queue` からメッセージを受信し、SSE + JSONでブラウザに配信
+- **SSE Consumer**: anonymous exclusive queueからメッセージを受信し、SSE + JSONでブラウザに配信
 - **集計Consumer**: `aggregation_queue` からメッセージを受信し、Valkeyに集計データを書き込み
 - **AlertEvaluator**: `@Scheduled` でValkeyの集計値をポーリングし、閾値超過時にAlertmanagerへアラートをPOST
 - **BlacklistEvaluator**: `@Scheduled` でValkeyの非許可ホストアクセスカウントをポーリングし、閾値超過IPをログ出力、RabbitMQ経由でGitHub更新をトリガー
@@ -1215,7 +1215,7 @@ access-monitor/
 | コンポーネント                | スケールアウト | 備考                               |
 |------------------------|---------|----------------------------------|
 | AggregationConsumer    | ○ 可能    | Valkeyへの書き込みがアトミック加算のため安全        |
-| RealtimeConsumer       | △ 要対応   | anonymous exclusive queue方式で対応可能 |
+| RealtimeConsumer       | ○ 対応済   | anonymous exclusive queue方式で全インスタンスが全メッセージを受信 |
 | AlertEvaluator         | △ 要対応   | 分散ロックまたはAlertmanagerのdedup機能で対応  |
 | BlacklistEvaluator     | △ 要対応   | 分散ロックで単一インスタンス実行に制限              |
 | BlacklistActionConsumer | ○ 対応済   | Single Active Consumerで直列処理を保証   |
@@ -1227,11 +1227,9 @@ access-monitor/
 
 ### 13.3 RealtimeConsumer
 
-現在の実装では `realtime_queue`（名前付きキュー）を使用している。単一キューのため、複数インスタンスではメッセージがラウンドロビン分配される。各インスタンスが全メッセージの一部しか受信できず、SSEクライアントに不完全なストリームが配信される問題がある。
+anonymous exclusive queue 方式を採用している。各インスタンスが起動時にインスタンス固有のexclusive queueを動的に作成し、`access_exchange` にバインドする。これにより全インスタンスが全メッセージのコピーを受信し、SSEクライアントに完全なストリームが配信される。
 
-**将来の対応方針: anonymous exclusive queue**
-
-各インスタンスがインスタンス固有のexclusive queueを動的に作成し、`access_exchange` にバインドする。これにより全インスタンスが全メッセージのコピーを受信する。
+`@RabbitListener` の `bindings` 属性でキュー・バインディングを宣言しているため、トポロジ設定側（`RabbitMqTopologyConfig`）での管理は不要。
 
 ```java
 
@@ -1246,9 +1244,6 @@ public void onMessage(byte[] body) {
     // ...
 }
 ```
-
-この方式では、`realtime_queue`（名前付きキュー）はSSE配信には使用しなくなる。名前付きの `realtime_queue`
-を残すかどうかは運用要件に応じて判断すること。
 
 ### 13.4 AlertEvaluator
 

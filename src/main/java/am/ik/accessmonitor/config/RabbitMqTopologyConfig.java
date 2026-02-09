@@ -35,14 +35,6 @@ public class RabbitMqTopologyConfig {
 	}
 
 	/**
-	 * Non-durable queue for real-time SSE streaming.
-	 */
-	@Bean
-	Queue realtimeQueue() {
-		return new Queue("realtime_queue", false, false, true);
-	}
-
-	/**
 	 * Durable queue for aggregation processing.
 	 */
 	@Bean
@@ -58,14 +50,6 @@ public class RabbitMqTopologyConfig {
 	@Bean
 	Queue blacklistActionQueue() {
 		return new Queue(BLACKLIST_ACTION_QUEUE, true, false, false, Map.of("x-single-active-consumer", true));
-	}
-
-	/**
-	 * Binds the realtime queue to the access exchange with routing key "access_logs".
-	 */
-	@Bean
-	Binding realtimeBinding(Queue realtimeQueue, TopicExchange accessExchange) {
-		return BindingBuilder.bind(realtimeQueue).to(accessExchange).with("access_logs");
 	}
 
 	/**
