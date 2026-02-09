@@ -50,7 +50,17 @@ public record AccessMonitorProperties(SseProperties sse, AggregationProperties a
 	 * Alert evaluation configuration.
 	 */
 	public record AlertsProperties(@DefaultValue("true") boolean enabled, String alertmanagerUrl,
-			@DefaultValue("15s") Duration evaluationInterval, @DefaultValue List<AlertRuleProperties> rules) {
+			String alertmanagerExternalUrl, @DefaultValue("15s") Duration evaluationInterval,
+			@DefaultValue List<AlertRuleProperties> rules) {
+
+		/**
+		 * Returns the external URL for Alertmanager, falling back to
+		 * {@link #alertmanagerUrl} if not explicitly set.
+		 */
+		public String effectiveAlertmanagerExternalUrl() {
+			return (alertmanagerExternalUrl != null && !alertmanagerExternalUrl.isBlank()) ? alertmanagerExternalUrl
+					: alertmanagerUrl;
+		}
 
 		/**
 		 * Individual alert rule configuration.

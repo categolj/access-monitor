@@ -316,7 +316,7 @@ public class AlertEvaluator {
 
 	private void fireAlert(String alertKey, Map<String, String> labels, Map<String, String> annotations) {
 		this.alertManagerClient.postAlert(new AlertManagerClient.AlertPayload(labels, annotations,
-				this.instantSource.instant(), "http://access-monitor:8080/alerts"));
+				this.instantSource.instant(), this.properties.alerts().effectiveAlertmanagerExternalUrl()));
 		this.cooldownManager.recordFiring(alertKey);
 	}
 
