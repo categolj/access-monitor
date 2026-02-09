@@ -27,6 +27,16 @@ public class RabbitMqTopologyConfig {
 	public static final String BLACKLIST_ACTION_QUEUE = "blacklist_action_queue";
 
 	/**
+	 * Topic exchange name for blacklist action messages.
+	 */
+	public static final String BLACKLIST_ACTION_EXCHANGE = "blacklist_action_exchange";
+
+	/**
+	 * Routing key for blacklist action messages targeting HAProxy GitOps updates.
+	 */
+	public static final String BLACKLIST_ACTION_ROUTING_KEY = "blacklist.gitops_haproxy";
+
+	/**
 	 * Topic exchange for access logs.
 	 */
 	@Bean
@@ -43,9 +53,17 @@ public class RabbitMqTopologyConfig {
 	}
 
 	/**
-	 * Durable queue for blacklist action processing via the default exchange. Uses single
-	 * active consumer to ensure serial processing across scaled-out instances, avoiding
-	 * GitHub SHA conflicts.
+	 * Topic exchange for blacklist action messages.
+	 */
+	@Bean
+	TopicExchange blacklistActionExchange() {
+		return new TopicExchange(BLACKLIST_ACTION_EXCHANGE, true, false);
+	}
+
+	/**
+	 * Durable queue for blacklist action processing. Uses single active consumer to
+	 * ensure serial processing across scaled-out instances, avoiding GitHub SHA
+	 * conflicts.
 	 */
 	@Bean
 	Queue blacklistActionQueue() {
@@ -58,6 +76,14 @@ public class RabbitMqTopologyConfig {
 	@Bean
 	Binding aggregationBinding(Queue aggregationQueue, TopicExchange accessExchange) {
 		return BindingBuilder.bind(aggregationQueue).to(accessExchange).with("access_logs");
+	}
+
+	/**
+	 * Binds the blacklist action queue to the blacklist action exchange.
+	 */
+	@Bean
+	Binding blacklistActionBinding(Queue blacklistActionQueue, TopicExchange blacklistActionExchange) {
+		return BindingBuilder.bind(blacklistActionQueue).to(blacklistActionExchange).with(BLACKLIST_ACTION_ROUTING_KEY);
 	}
 
 	/**

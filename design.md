@@ -148,6 +148,7 @@ OTLPメッセージ内のTraefik属性と内部ドメインモデルの対応関
 | 名前                | タイプ   | Durable | 備考                  |
 |-------------------|-------|---------|---------------------|
 | `access_exchange` | topic | true    | otelcolからのアクセスログを受信 |
+| `blacklist_action_exchange` | topic | true | ブラックリストアクション用 |
 
 ### 4.2 Queues
 
@@ -155,9 +156,9 @@ OTLPメッセージ内のTraefik属性と内部ドメインモデルの対応関
 |--------------------------|---------|-------------|---------------|-----------------------|
 | (anonymous exclusive)    | false   | true        | `access_logs` | SSEリアルタイム配信（インスタンスごとに自動作成） |
 | `aggregation_queue`      | true    | false       | `access_logs` | 集計処理                  |
-| `blacklist_action_queue` | true    | false       | (default exchange) | ブロックIP GitOps更新 |
+| `blacklist_action_queue` | true    | false       | `blacklist_action_exchange` (topic) | ブロックIP GitOps更新 |
 
-`blacklist_action_queue` はdefault exchange（キュー名がそのままrouting key）を使用する。topic/fanoutルーティングが不要な1対1のワークキューパターンであるため。`x-single-active-consumer: true` を設定し、スケールアウト時も直列処理を保証する（詳細は13.6節）。
+`blacklist_action_queue` は専用の topic exchange（`blacklist_action_exchange`）にバインドされ、routing key `blacklist.gitops_haproxy` でメッセージを受信する。topic exchangeを採用し、将来的なブラックリストアクションの種類追加（例: `blacklist.github`, `blacklist.firewall`）に対応できるようにしている。`x-single-active-consumer: true` を設定し、スケールアウト時も直列処理を保証する（詳細は13.6節）。
 
 ### 4.3 トポロジの自動作成
 
@@ -618,7 +619,7 @@ Valkey ←── BlacklistEvaluator (@Scheduled, 15秒間隔)
             BlacklistActionPublisher.publish(clientIp)
                 │
                 ▼
-            RabbitMQ: blacklist_action_queue (default exchange)
+            RabbitMQ: blacklist_action_exchange → blacklist_action_queue
                 │
                 ▼
             BlacklistActionConsumer (@RabbitListener)

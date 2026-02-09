@@ -29,7 +29,8 @@ public class BlacklistActionPublisher {
 	 * @param clientIp the IP address to be blocked
 	 */
 	public void publish(String clientIp) {
-		this.rabbitTemplate.convertAndSend(RabbitMqTopologyConfig.BLACKLIST_ACTION_QUEUE, clientIp);
+		this.rabbitTemplate.convertAndSend(RabbitMqTopologyConfig.BLACKLIST_ACTION_EXCHANGE,
+				RabbitMqTopologyConfig.BLACKLIST_ACTION_ROUTING_KEY, clientIp);
 		log.info("msg=\"Published blacklist action\" clientIp={}", clientIp);
 	}
 
