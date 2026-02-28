@@ -77,8 +77,8 @@ public record AccessMonitorProperties(SseProperties sse, AggregationProperties a
 	 */
 	public record BlacklistProperties(@DefaultValue("true") boolean enabled,
 			@DefaultValue("15s") Duration evaluationInterval, @DefaultValue List<String> allowedHosts,
-			@DefaultValue("100") int threshold, @DefaultValue("1m") Duration window,
-			@DefaultValue("10m") Duration cooldown, GitHubProperties github) {
+			@DefaultValue List<String> allowedIps, @DefaultValue("100") int threshold,
+			@DefaultValue("1m") Duration window, @DefaultValue("10m") Duration cooldown, GitHubProperties github) {
 
 		/**
 		 * GitHub integration configuration for automatically updating blocked IPs via the

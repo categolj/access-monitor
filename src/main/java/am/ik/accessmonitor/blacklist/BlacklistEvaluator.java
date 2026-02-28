@@ -39,6 +39,8 @@ public class BlacklistEvaluator {
 
 	private final InstanceId instanceId;
 
+	private final AllowedIpMatcher allowedIpMatcher;
+
 	private final ObjectProvider<BlacklistActionPublisher> blacklistActionPublisher;
 
 	public BlacklistEvaluator(StringRedisTemplate redisTemplate, AccessMonitorProperties properties,
@@ -49,6 +51,7 @@ public class BlacklistEvaluator {
 		this.cooldownManager = cooldownManager;
 		this.instantSource = instantSource;
 		this.instanceId = instanceId;
+		this.allowedIpMatcher = new AllowedIpMatcher(properties.blacklist().allowedIps());
 		this.blacklistActionPublisher = blacklistActionPublisher;
 	}
 
@@ -80,6 +83,10 @@ public class BlacklistEvaluator {
 				long requestCount = Long.parseLong(value);
 				if (requestCount >= this.blacklistProperties.threshold()) {
 					String clientIp = extractClientIp(key);
+					if (this.allowedIpMatcher.isAllowed(clientIp)) {
+						log.debug("msg=\"Skipping allowed IP\" clientIp={}", clientIp);
+						continue;
+					}
 					if (this.cooldownManager.canFire(clientIp, this.blacklistProperties.cooldown())) {
 						log.warn(
 								"msg=\"Blacklist candidate detected\" clientIp={} requestCount={} window={} threshold={}",
