@@ -52,7 +52,12 @@ class SseStreamIntegrationTest {
 			.retrieve()
 			.bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {
 			})
-			.mapNotNull(ServerSentEvent::data)
+			.<String>handle((sse, sink) -> {
+				String data = sse.data();
+				if (data != null) {
+					sink.next(data);
+				}
+			})
 			.filter(data -> data.contains("ik.am"))
 			.take(1);
 

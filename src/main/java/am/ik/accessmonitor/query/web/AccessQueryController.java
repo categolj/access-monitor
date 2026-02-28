@@ -2,6 +2,7 @@ package am.ik.accessmonitor.query.web;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 
 import am.ik.accessmonitor.query.AccessQueryService;
 import am.ik.accessmonitor.query.AccessQueryService.DimensionParams;
@@ -40,7 +41,8 @@ public class AccessQueryController {
 			return ResponseEntity.ok(result);
 		}
 		catch (IllegalArgumentException ex) {
-			return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
+			return ResponseEntity.badRequest()
+				.body(Map.of("message", Objects.toString(ex.getMessage(), "Bad request")));
 		}
 	}
 
@@ -73,7 +75,8 @@ public class AccessQueryController {
 			return ResponseEntity.ok(result);
 		}
 		catch (IllegalArgumentException ex) {
-			return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
+			return ResponseEntity.badRequest()
+				.body(Map.of("message", Objects.toString(ex.getMessage(), "Bad request")));
 		}
 	}
 

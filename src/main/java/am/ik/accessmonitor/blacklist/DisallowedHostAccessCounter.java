@@ -4,6 +4,7 @@ import am.ik.accessmonitor.AccessMonitorProperties;
 import am.ik.accessmonitor.aggregation.Granularity;
 import am.ik.accessmonitor.aggregation.ValkeyKeyBuilder;
 import am.ik.accessmonitor.event.AccessEvent;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -39,7 +40,7 @@ public class DisallowedHostAccessCounter {
 			return;
 		}
 
-		this.redisTemplate.executePipelined((RedisCallback<Object>) (connection) -> {
+		this.redisTemplate.executePipelined((RedisCallback<@Nullable Object>) (connection) -> {
 			for (Granularity granularity : GRANULARITIES) {
 				String ts = granularity.format(event.timestamp());
 				String key = ValkeyKeyBuilder.disallowedHostCountKey(granularity, ts, event.clientIp());

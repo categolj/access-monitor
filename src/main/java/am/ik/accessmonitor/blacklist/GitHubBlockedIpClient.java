@@ -2,6 +2,7 @@ package am.ik.accessmonitor.blacklist;
 
 import java.util.Base64;
 import java.util.Map;
+import java.util.Objects;
 
 import am.ik.accessmonitor.AccessMonitorProperties;
 import org.slf4j.Logger;
@@ -28,7 +29,8 @@ public class GitHubBlockedIpClient {
 	private final AccessMonitorProperties.BlacklistProperties.GitHubProperties gitHubProperties;
 
 	public GitHubBlockedIpClient(RestClient.Builder restClientBuilder, AccessMonitorProperties properties) {
-		this.gitHubProperties = properties.blacklist().github();
+		this.gitHubProperties = Objects.requireNonNull(properties.blacklist().github(),
+				"GitHub properties must be configured when github.enabled=true");
 		this.restClient = restClientBuilder.baseUrl(this.gitHubProperties.apiUrl())
 			.defaultHeader("Authorization", "Bearer " + this.gitHubProperties.accessToken())
 			.build();
@@ -47,9 +49,19 @@ public class GitHubBlockedIpClient {
 			.retrieve()
 			.body(new ParameterizedTypeReference<>() {
 			});
-		String encodedContent = ((String) response.get("content")).replaceAll("\\s", "");
+		if (response == null) {
+			throw new IllegalStateException("GitHub API returned null response for " + uri);
+		}
+		String rawContent = (String) response.get("content");
+		if (rawContent == null) {
+			throw new IllegalStateException("GitHub API response missing 'content' field");
+		}
+		String encodedContent = rawContent.replaceAll("\\s", "");
 		String content = new String(Base64.getDecoder().decode(encodedContent));
 		String sha = (String) response.get("sha");
+		if (sha == null) {
+			throw new IllegalStateException("GitHub API response missing 'sha' field");
+		}
 		log.debug("msg=\"Retrieved file from GitHub\" path={} sha={}", this.gitHubProperties.path(), sha);
 		return new FileContent(content, sha);
 	}

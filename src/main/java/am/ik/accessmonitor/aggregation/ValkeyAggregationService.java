@@ -6,6 +6,7 @@ import java.util.List;
 import am.ik.accessmonitor.AccessMonitorProperties;
 import am.ik.accessmonitor.aggregation.PathPatternMatcher.MatchResult;
 import am.ik.accessmonitor.event.AccessEvent;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -46,7 +47,7 @@ public class ValkeyAggregationService {
 		List<String> matchingLabels = matchResult.labels();
 		boolean dropOriginalPath = matchResult.dropOriginalPath();
 
-		this.redisTemplate.executePipelined((RedisCallback<Object>) (connection) -> {
+		this.redisTemplate.executePipelined((RedisCallback<@Nullable Object>) (connection) -> {
 			for (Granularity granularity : Granularity.values()) {
 				String ts = granularity.format(timestamp);
 				long ttl = granularity.ttlSeconds(this.ttlProperties);

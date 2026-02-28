@@ -175,7 +175,7 @@ class OtlpLogsControllerIntegrationTest {
 			.filter(kv -> kv.getKey().equals(key))
 			.map(kv -> kv.getValue().getStringValue())
 			.findFirst()
-			.orElse(null);
+			.orElseThrow(() -> new AssertionError("Attribute not found: " + key));
 	}
 
 	private KeyValue stringKv(String key, String value) {

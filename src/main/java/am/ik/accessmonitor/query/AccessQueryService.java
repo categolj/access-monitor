@@ -10,6 +10,7 @@ import java.util.Set;
 import am.ik.accessmonitor.AccessMonitorProperties;
 import am.ik.accessmonitor.aggregation.Granularity;
 import am.ik.accessmonitor.aggregation.ValkeyKeyBuilder;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -62,10 +63,10 @@ public class AccessQueryService {
 
 						for (String statusStr : statuses) {
 							int statusCode = Integer.parseInt(statusStr);
-							Long count = getCount(granularity, ts, host, path, statusCode, method);
+							long count = getCount(granularity, ts, host, path, statusCode, method);
 							DurationStats duration = getDuration(granularity, ts, host, path, statusCode, method);
 
-							if ((count != null && count > 0) || duration != null) {
+							if (count > 0 || duration != DurationStats.EMPTY) {
 								QueryResult.StatusMetrics metrics = buildMetrics(params.metric(), count, duration);
 								if (metrics != null) {
 									statusMetrics.put(statusStr, metrics);
@@ -193,37 +194,46 @@ public class AccessQueryService {
 		return statuses != null ? statuses : Set.of();
 	}
 
-	private Long getCount(Granularity granularity, String ts, String host, String path, int status, String method) {
+	/**
+	 * Returns the count for the given key, or 0 if not found.
+	 */
+	private long getCount(Granularity granularity, String ts, String host, String path, int status, String method) {
 		String key = ValkeyKeyBuilder.countKey(granularity, ts, host, path, status, method);
 		String value = this.redisTemplate.opsForValue().get(key);
-		return value != null ? Long.parseLong(value) : null;
+		return value != null ? Long.parseLong(value) : 0;
 	}
 
+	/**
+	 * Returns the duration stats for the given key, or {@link DurationStats#EMPTY} if not
+	 * found.
+	 */
 	private DurationStats getDuration(Granularity granularity, String ts, String host, String path, int status,
 			String method) {
 		String key = ValkeyKeyBuilder.durationKey(granularity, ts, host, path, status, method);
 		Map<Object, Object> hash = this.redisTemplate.opsForHash().entries(key);
 		if (hash.isEmpty()) {
-			return null;
+			return DurationStats.EMPTY;
 		}
 		String sumStr = (String) hash.get("sum");
 		String countStr = (String) hash.get("count");
 		if (sumStr == null || countStr == null) {
-			return null;
+			return DurationStats.EMPTY;
 		}
 		return new DurationStats(Long.parseLong(sumStr), Long.parseLong(countStr));
 	}
 
-	private QueryResult.StatusMetrics buildMetrics(String metric, Long count, DurationStats duration) {
+	private QueryResult.@Nullable StatusMetrics buildMetrics(String metric, long count, DurationStats duration) {
 		String metricType = metric != null ? metric : "both";
-		Long resultCount = null;
-		Double durationMsAvg = null;
+		@Nullable Long resultCount = null;
+		@Nullable Double durationMsAvg = null;
 
 		if ("count".equals(metricType) || "both".equals(metricType)) {
-			resultCount = count;
+			if (count > 0) {
+				resultCount = count;
+			}
 		}
 		if ("duration".equals(metricType) || "both".equals(metricType)) {
-			if (duration != null && duration.count() > 0) {
+			if (duration != DurationStats.EMPTY && duration.count() > 0) {
 				durationMsAvg = (double) duration.sum() / duration.count() / 1_000_000.0;
 			}
 		}
@@ -263,7 +273,7 @@ public class AccessQueryService {
 		/**
 		 * Metrics for a specific status code within a series entry.
 		 */
-		public record StatusMetrics(Long count, Double durationMsAvg) {
+		public record StatusMetrics(@Nullable Long count, @Nullable Double durationMsAvg) {
 		}
 	}
 
@@ -275,6 +285,8 @@ public class AccessQueryService {
 	}
 
 	private record DurationStats(long sum, long count) {
+		static final DurationStats EMPTY = new DurationStats(0, 0);
+
 	}
 
 }

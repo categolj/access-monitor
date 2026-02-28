@@ -5,11 +5,23 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import am.ik.accessmonitor.AccessMonitorProperties;
+import am.ik.accessmonitor.AccessMonitorProperties.AggregationProperties;
+import am.ik.accessmonitor.AccessMonitorProperties.AlertsProperties;
+import am.ik.accessmonitor.AccessMonitorProperties.BlacklistProperties;
+import am.ik.accessmonitor.AccessMonitorProperties.BlacklistProperties.GitHubProperties;
+import am.ik.accessmonitor.AccessMonitorProperties.QueryProperties;
+import am.ik.accessmonitor.AccessMonitorProperties.SseProperties;
+import am.ik.accessmonitor.AccessMonitorProperties.ValkeyProperties;
+import am.ik.accessmonitor.AccessMonitorProperties.ValkeyProperties.TtlProperties;
 import com.sun.net.httpserver.HttpServer;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.AfterAll;
@@ -22,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class GitHubBlockedIpClientTest {
 
-	static HttpServer mockGitHub;
+	static @Nullable HttpServer mockGitHub;
 
 	static int port;
 
@@ -84,15 +96,15 @@ class GitHubBlockedIpClientTest {
 	}
 
 	GitHubBlockedIpClient createClient() {
-		am.ik.accessmonitor.AccessMonitorProperties properties = new am.ik.accessmonitor.AccessMonitorProperties(null,
-				null, null, null,
-				new am.ik.accessmonitor.AccessMonitorProperties.BlacklistProperties(true,
-						java.time.Duration.ofSeconds(15), java.util.List.of(), java.util.List.of(), 100,
-						java.time.Duration.ofMinutes(1), java.time.Duration.ofMinutes(10),
-						new am.ik.accessmonitor.AccessMonitorProperties.BlacklistProperties.GitHubProperties(true,
-								"test-token", "http://localhost:" + port, "test-owner", "test-repo", "test/path.yaml",
-								"test-committer", "test@example.com")),
-				null);
+		AccessMonitorProperties properties = new AccessMonitorProperties(new SseProperties(1000, 10),
+				new AggregationProperties(200, List.of()),
+				new ValkeyProperties(new TtlProperties(Duration.ofDays(1), Duration.ofDays(7), Duration.ofDays(30),
+						Duration.ofDays(90))),
+				new AlertsProperties(false, null, null, Duration.ofSeconds(15), List.of()),
+				new BlacklistProperties(true, Duration.ofSeconds(15), List.of(), List.of(), 100, Duration.ofMinutes(1),
+						Duration.ofMinutes(10), new GitHubProperties(true, "test-token", "http://localhost:" + port,
+								"test-owner", "test-repo", "test/path.yaml", "test-committer", "test@example.com")),
+				new QueryProperties(2880));
 		return new GitHubBlockedIpClient(RestClient.builder(), properties);
 	}
 
@@ -128,7 +140,9 @@ class GitHubBlockedIpClientTest {
 		String decodedContent = new String(Base64.getDecoder().decode((String) body.get("content")));
 		assertThat(decodedContent).isEqualTo(newContent);
 
+		@SuppressWarnings("unchecked")
 		Map<String, String> committer = (Map<String, String>) body.get("committer");
+		assertThat(committer).isNotNull();
 		assertThat(committer.get("name")).isEqualTo("test-committer");
 		assertThat(committer.get("email")).isEqualTo("test@example.com");
 	}

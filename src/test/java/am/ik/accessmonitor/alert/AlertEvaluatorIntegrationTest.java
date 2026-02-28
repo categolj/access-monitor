@@ -15,6 +15,7 @@ import am.ik.accessmonitor.TestcontainersConfiguration;
 import am.ik.accessmonitor.aggregation.Granularity;
 import am.ik.accessmonitor.aggregation.ValkeyKeyBuilder;
 import com.sun.net.httpserver.HttpServer;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,7 +38,7 @@ class AlertEvaluatorIntegrationTest {
 
 	static final Instant FIXED_TIME = Instant.parse("2026-01-15T12:30:30Z");
 
-	static HttpServer mockAlertmanager;
+	static @Nullable HttpServer mockAlertmanager;
 
 	static CopyOnWriteArrayList<String> receivedAlerts = new CopyOnWriteArrayList<>();
 

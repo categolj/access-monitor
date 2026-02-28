@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import am.ik.accessmonitor.AccessMonitorProperties;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +23,7 @@ public class AlertManagerClient {
 
 	private final RestClient restClient;
 
-	private final String alertmanagerUrl;
+	private final @Nullable String alertmanagerUrl;
 
 	public AlertManagerClient(RestClient.Builder restClientBuilder, AccessMonitorProperties properties) {
 		this.alertmanagerUrl = properties.alerts().alertmanagerUrl();
@@ -56,7 +57,7 @@ public class AlertManagerClient {
 	 * Represents an alert payload to be sent to the Alertmanager API.
 	 */
 	public record AlertPayload(Map<String, String> labels, Map<String, String> annotations, Instant startsAt,
-			String generatorURL) {
+			@Nullable String generatorURL) {
 	}
 
 }

@@ -3,6 +3,8 @@ package am.ik.accessmonitor;
 import java.time.Duration;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
@@ -49,15 +51,15 @@ public record AccessMonitorProperties(SseProperties sse, AggregationProperties a
 	/**
 	 * Alert evaluation configuration.
 	 */
-	public record AlertsProperties(@DefaultValue("true") boolean enabled, String alertmanagerUrl,
-			String alertmanagerExternalUrl, @DefaultValue("15s") Duration evaluationInterval,
+	public record AlertsProperties(@DefaultValue("true") boolean enabled, @Nullable String alertmanagerUrl,
+			@Nullable String alertmanagerExternalUrl, @DefaultValue("15s") Duration evaluationInterval,
 			@DefaultValue List<AlertRuleProperties> rules) {
 
 		/**
 		 * Returns the external URL for Alertmanager, falling back to
 		 * {@link #alertmanagerUrl} if not explicitly set.
 		 */
-		public String effectiveAlertmanagerExternalUrl() {
+		public @Nullable String effectiveAlertmanagerExternalUrl() {
 			return (alertmanagerExternalUrl != null && !alertmanagerExternalUrl.isBlank()) ? alertmanagerExternalUrl
 					: alertmanagerUrl;
 		}
@@ -78,7 +80,8 @@ public record AccessMonitorProperties(SseProperties sse, AggregationProperties a
 	public record BlacklistProperties(@DefaultValue("true") boolean enabled,
 			@DefaultValue("15s") Duration evaluationInterval, @DefaultValue List<String> allowedHosts,
 			@DefaultValue List<String> allowedIps, @DefaultValue("100") int threshold,
-			@DefaultValue("1m") Duration window, @DefaultValue("10m") Duration cooldown, GitHubProperties github) {
+			@DefaultValue("1m") Duration window, @DefaultValue("10m") Duration cooldown,
+			@Nullable GitHubProperties github) {
 
 		/**
 		 * GitHub integration configuration for automatically updating blocked IPs via the

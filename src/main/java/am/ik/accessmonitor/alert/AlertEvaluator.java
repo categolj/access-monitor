@@ -11,6 +11,7 @@ import am.ik.accessmonitor.InstanceId;
 import am.ik.accessmonitor.AccessMonitorProperties.AlertsProperties.AlertRuleProperties;
 import am.ik.accessmonitor.aggregation.Granularity;
 import am.ik.accessmonitor.aggregation.ValkeyKeyBuilder;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,7 +103,8 @@ public class AlertEvaluator {
 		evaluateCondition(rule, granularity, ts, null);
 	}
 
-	private void evaluateCondition(AlertRuleProperties rule, Granularity granularity, String ts, String host) {
+	private void evaluateCondition(AlertRuleProperties rule, Granularity granularity, String ts,
+			@Nullable String host) {
 		switch (rule.condition()) {
 			case "error_rate" -> evaluateErrorRate(rule, granularity, ts, host);
 			case "traffic_spike" -> evaluateTrafficSpike(rule, granularity, ts, host);
@@ -112,7 +114,8 @@ public class AlertEvaluator {
 		}
 	}
 
-	private void evaluateErrorRate(AlertRuleProperties rule, Granularity granularity, String ts, String host) {
+	private void evaluateErrorRate(AlertRuleProperties rule, Granularity granularity, String ts,
+			@Nullable String host) {
 		long totalCount = sumCountsByStatusPrefix(granularity, ts, host);
 		long errorCount = sumCountsByStatusRange(granularity, ts, host, 500, 599);
 
@@ -135,7 +138,8 @@ public class AlertEvaluator {
 		}
 	}
 
-	private void evaluateTrafficSpike(AlertRuleProperties rule, Granularity granularity, String ts, String host) {
+	private void evaluateTrafficSpike(AlertRuleProperties rule, Granularity granularity, String ts,
+			@Nullable String host) {
 		long currentCount = sumCountsByStatusPrefix(granularity, ts, host);
 
 		// Calculate baseline from 1h granularity average
@@ -160,7 +164,8 @@ public class AlertEvaluator {
 		}
 	}
 
-	private void evaluateSlowResponse(AlertRuleProperties rule, Granularity granularity, String ts, String host) {
+	private void evaluateSlowResponse(AlertRuleProperties rule, Granularity granularity, String ts,
+			@Nullable String host) {
 		// Use average response time as approximation (percentile not available in simple
 		// aggregation)
 		long totalDurationNs = 0;
@@ -169,10 +174,6 @@ public class AlertEvaluator {
 		Set<String> statuses = getStatuses(granularity, ts, host);
 		Set<String> methods = getMethods(granularity, ts, host);
 		Set<String> paths = getPaths(granularity, ts, host);
-
-		if (statuses == null || methods == null || paths == null) {
-			return;
-		}
 
 		for (String status : statuses) {
 			for (String method : methods) {
@@ -210,7 +211,8 @@ public class AlertEvaluator {
 		}
 	}
 
-	private void evaluateZeroRequests(AlertRuleProperties rule, Granularity granularity, String ts, String host) {
+	private void evaluateZeroRequests(AlertRuleProperties rule, Granularity granularity, String ts,
+			@Nullable String host) {
 		long totalCount = sumCountsByStatusPrefix(granularity, ts, host);
 		if (totalCount == 0) {
 			String alertKey = buildAlertKey(rule, host);
@@ -224,14 +226,10 @@ public class AlertEvaluator {
 		}
 	}
 
-	private long sumCountsByStatusPrefix(Granularity granularity, String ts, String host) {
+	private long sumCountsByStatusPrefix(Granularity granularity, String ts, @Nullable String host) {
 		Set<String> statuses = getStatuses(granularity, ts, host);
 		Set<String> methods = getMethods(granularity, ts, host);
 		Set<String> paths = getPaths(granularity, ts, host);
-
-		if (statuses == null || methods == null || paths == null) {
-			return 0;
-		}
 
 		long total = 0;
 		for (String status : statuses) {
@@ -249,14 +247,11 @@ public class AlertEvaluator {
 		return total;
 	}
 
-	private long sumCountsByStatusRange(Granularity granularity, String ts, String host, int minStatus, int maxStatus) {
+	private long sumCountsByStatusRange(Granularity granularity, String ts, @Nullable String host, int minStatus,
+			int maxStatus) {
 		Set<String> statuses = getStatuses(granularity, ts, host);
 		Set<String> methods = getMethods(granularity, ts, host);
 		Set<String> paths = getPaths(granularity, ts, host);
-
-		if (statuses == null || methods == null || paths == null) {
-			return 0;
-		}
 
 		long total = 0;
 		for (String status : statuses) {
@@ -278,32 +273,38 @@ public class AlertEvaluator {
 		return total;
 	}
 
-	private Set<String> getStatuses(Granularity granularity, String ts, String host) {
+	private Set<String> getStatuses(Granularity granularity, String ts, @Nullable String host) {
 		if (host == null) {
 			return Set.of();
 		}
-		return this.redisTemplate.opsForSet().members(ValkeyKeyBuilder.statusesIndexKey(granularity, ts, host));
+		Set<String> result = this.redisTemplate.opsForSet()
+			.members(ValkeyKeyBuilder.statusesIndexKey(granularity, ts, host));
+		return result != null ? result : Set.of();
 	}
 
-	private Set<String> getMethods(Granularity granularity, String ts, String host) {
+	private Set<String> getMethods(Granularity granularity, String ts, @Nullable String host) {
 		if (host == null) {
 			return Set.of();
 		}
-		return this.redisTemplate.opsForSet().members(ValkeyKeyBuilder.methodsIndexKey(granularity, ts, host));
+		Set<String> result = this.redisTemplate.opsForSet()
+			.members(ValkeyKeyBuilder.methodsIndexKey(granularity, ts, host));
+		return result != null ? result : Set.of();
 	}
 
-	private Set<String> getPaths(Granularity granularity, String ts, String host) {
+	private Set<String> getPaths(Granularity granularity, String ts, @Nullable String host) {
 		if (host == null) {
 			return Set.of();
 		}
-		return this.redisTemplate.opsForSet().members(ValkeyKeyBuilder.pathsIndexKey(granularity, ts, host));
+		Set<String> result = this.redisTemplate.opsForSet()
+			.members(ValkeyKeyBuilder.pathsIndexKey(granularity, ts, host));
+		return result != null ? result : Set.of();
 	}
 
-	private String buildAlertKey(AlertRuleProperties rule, String host) {
+	private String buildAlertKey(AlertRuleProperties rule, @Nullable String host) {
 		return host != null ? rule.name() + ":" + host : rule.name();
 	}
 
-	private Map<String, String> buildLabels(AlertRuleProperties rule, String host) {
+	private Map<String, String> buildLabels(AlertRuleProperties rule, @Nullable String host) {
 		Map<String, String> labels = new HashMap<>();
 		labels.put("alertname", rule.name());
 		labels.put("severity", rule.severity());

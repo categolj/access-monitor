@@ -103,10 +103,10 @@ class PathPatternMatcherTest {
 				new AggregationProperties(200, patterns),
 				new ValkeyProperties(new TtlProperties(Duration.ofDays(1), Duration.ofDays(7), Duration.ofDays(30),
 						Duration.ofDays(90))),
-				new AlertsProperties(true, null, null, Duration.ofSeconds(15), List.of()),
+				new AlertsProperties(false, null, null, Duration.ofSeconds(15), List.of()),
 				new BlacklistProperties(true, Duration.ofSeconds(15), List.of(), List.of(), 100, Duration.ofMinutes(1),
 						Duration.ofMinutes(10), null),
-				new QueryProperties(1440));
+				new QueryProperties(2880));
 		return new PathPatternMatcher(properties);
 	}
 

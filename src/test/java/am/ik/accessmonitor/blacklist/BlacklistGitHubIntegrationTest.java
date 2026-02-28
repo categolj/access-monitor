@@ -16,6 +16,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import am.ik.accessmonitor.TestcontainersConfiguration;
 import am.ik.accessmonitor.aggregation.Granularity;
 import com.sun.net.httpserver.HttpServer;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +40,7 @@ class BlacklistGitHubIntegrationTest {
 
 	static final Instant FIXED_TIME = Instant.parse("2026-01-15T12:30:30Z");
 
-	static HttpServer mockGitHub;
+	static @Nullable HttpServer mockGitHub;
 
 	static CopyOnWriteArrayList<String> receivedPutBodies = new CopyOnWriteArrayList<>();
 
