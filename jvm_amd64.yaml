@@ -1,8 +1,8 @@
-image: ghcr.io/categolj/access-monitor@sha256:13cd93ce15b1fe14ce6151849456c6ee19ebbfadfe5d93de4328b8ed9ffcbc13
-git_revision: f29b2a2bbbf8e2b4b2a37ebd52538eb212cfaded
+image: ghcr.io/categolj/access-monitor@sha256:dee4d6a2819986e13a037d5f60e1ace538887c5aaf39cf72e94d0e03093174f9
+git_revision: 8d308f7ae98b06b0f970981a8d3582d49947ee9c
 deployment:
   image:
     repository: ghcr.io/categolj/access-monitor
-    digest: sha256:13cd93ce15b1fe14ce6151849456c6ee19ebbfadfe5d93de4328b8ed9ffcbc13
+    digest: sha256:dee4d6a2819986e13a037d5f60e1ace538887c5aaf39cf72e94d0e03093174f9
   podLabels:
-    github.com/revision: f29b2a2bbbf8e2b4b2a37ebd52538eb212cfaded
+    github.com/revision: 8d308f7ae98b06b0f970981a8d3582d49947ee9c
