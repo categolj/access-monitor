@@ -46,7 +46,7 @@ class AccessLogControllerIntegrationTest {
 			.defaultHeaders(headers -> headers.setBasicAuth("user", "password"))
 			.build();
 		this.noAuthClient = RestTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
-		Queue queue = new Queue("test_json_ingest_queue", false, false, true);
+		Queue queue = new Queue("test_json_ingest_queue", false, true, true);
 		this.rabbitAdmin.declareQueue(queue);
 		this.rabbitAdmin
 			.declareBinding(BindingBuilder.bind(queue).to(new TopicExchange("access_exchange")).with("access_logs"));

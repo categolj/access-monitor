@@ -167,8 +167,9 @@ class AggregationConsumerIntegrationTest {
 
 	@Test
 	void subdomainMatchedBySuffixIsNotCountedAsDisallowed() {
-		// "test.gw.ik.am" matches the suffix pattern ".gw.ik.am" in allowed-hosts
-		byte[] message = buildOtlpMessage("test.gw.ik.am", "/page", "GET", 200, 10000000L, "2026-02-06T15:30:00Z",
+		// "test.synology.ik.am" matches the suffix pattern ".synology.ik.am" in
+		// allowed-hosts
+		byte[] message = buildOtlpMessage("test.synology.ik.am", "/page", "GET", 200, 10000000L, "2026-02-06T15:30:00Z",
 				"198.51.100.10");
 
 		this.rabbitTemplate.convertAndSend("access_exchange", "access_logs", message);
@@ -176,7 +177,7 @@ class AggregationConsumerIntegrationTest {
 		// Wait for aggregation to complete (the access count key should exist)
 		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
 			String countValue = this.redisTemplate.opsForValue()
-				.get("access:cnt:1m:202602061530:test.gw.ik.am:/page:200:GET");
+				.get("access:cnt:1m:202602061530:test.synology.ik.am:/page:200:GET");
 			assertThat(countValue).isEqualTo("1");
 		});
 

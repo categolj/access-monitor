@@ -55,7 +55,7 @@ class OtlpLogsControllerIntegrationTest {
 			.build();
 		this.noAuthClient = RestTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
 		// Declare a temporary queue to verify messages without competing with consumers
-		Queue queue = new Queue("test_ingest_queue", false, false, true);
+		Queue queue = new Queue("test_ingest_queue", false, true, true);
 		this.rabbitAdmin.declareQueue(queue);
 		this.rabbitAdmin
 			.declareBinding(BindingBuilder.bind(queue).to(new TopicExchange("access_exchange")).with("access_logs"));
